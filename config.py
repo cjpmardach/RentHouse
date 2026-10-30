@@ -9,7 +9,7 @@ def conectar():
         else:
             conexion = psycopg2.connect(
                 user="postgres",
-                password="123456",
+                password="xxx",
                 host="localhost",
                 port="5432",
                 database="alquiler",
