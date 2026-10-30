@@ -737,3 +737,29 @@ body:has(.inicio-page) { min-height: 100vh; background: #f6f1e8; color: #1d2433;
   .inicio-acciones .ini-btn { flex: 1 1 100%; text-align: center; }
   .inicio-nav .ini-btn { padding: 7px 14px; font-size: 13px; }
 }
+
+/* =====================================================================
+   9. PANEL DE ADMINISTRADOR (admin/menu.html)
+   ===================================================================== */
+.status.inactive { background: var(--status-cancelled); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 26px; }
+.stat-card { padding: 18px 20px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 16px; background: var(--card); box-shadow: 0 6px 20px rgba(0, 0, 0, .25); }
+.stat-num { font-size: 28px; font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
+.stat-label { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.stat-sub { margin-top: 6px; font-size: 12px; color: var(--sand); }
+.barras { max-width: 760px; }
+.barra-fila { display: grid; grid-template-columns: 90px 1fr 140px; gap: 12px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.barra { height: 12px; border-radius: 6px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.barra span { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--blue), var(--sand)); }
+.barra-valor { text-align: right; color: var(--text-muted); }
+.admin-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.layout .filtro-tabla { max-width: 360px; }
+.layout .tabla-vacia { text-align: center; color: var(--text-muted); }
+.layout td.celda-larga { max-width: 280px; overflow-wrap: anywhere; }
+.layout td .btn + .form-inline, .layout td .form-inline + .form-inline { margin-left: 4px; }
+
+@media (max-width: 800px) {
+  .admin-dos { grid-template-columns: 1fr; }
+  .barra-fila { grid-template-columns: 70px 1fr 100px; }
+  .layout .filtro-tabla { max-width: none; }
+}
