@@ -32,8 +32,6 @@
       6.1  Mi perfil (solo lectura) y chat en vivo
    7. RESPONSIVE (tabletas y teléfonos; el computador no cambia)
    8. PÁGINA DE INICIO (inicio.html)
-   9. PANEL DE ADMINISTRADOR (admin/menu.html)
-   10. COMPARTIR VIVIENDA (ver_vivienda)
    ===================================================================== */
 
 /* =====================================================================
@@ -417,6 +415,25 @@ a:hover > .miniatura { transform: scale(1.03); }
 .editar-archivo img, .editar-archivo video { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; background: rgba(0, 0, 0, .35); }
 .layout .editar-archivo label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; font-size: 12px; color: #fff; cursor: pointer; }
 
+/* ---- 5.1 Compartir vivienda ---- */
+.compartir-box { padding: 22px; background: var(--glass-strong); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, .2); border-radius: 18px; box-shadow: 0 10px 40px rgba(10, 20, 50, .35); }
+.compartir-box h2 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.compartir-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 16px; }
+.compartir-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; }
+.compartir-item { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 0; background: none; border: 0; color: #fff; font: inherit; font-size: 11.5px; font-weight: 500; text-decoration: none; cursor: pointer; }
+.compartir-icono { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255, 255, 255, .25); box-shadow: 0 4px 12px rgba(0, 0, 0, .3); transition: transform .2s, box-shadow .2s; }
+.compartir-icono svg { width: 22px; height: 22px; fill: #fff; }
+.compartir-item:hover .compartir-icono, .compartir-item:focus-visible .compartir-icono { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0, 0, 0, .45); }
+.compartir-item:focus-visible { outline: 2px solid var(--sand); outline-offset: 4px; border-radius: 10px; }
+.ci-whatsapp { background: #25d366; }
+.ci-facebook { background: #1877f2; }
+.ci-telegram { background: #26a5e4; }
+.ci-x { background: #111; }
+.ci-correo { background: var(--blue); }
+.ci-enlace { background: rgba(255, 255, 255, .16); }
+.compartir-aviso { min-height: 18px; margin-top: 12px; font-size: 12px; text-align: center; color: var(--success); opacity: 0; transition: opacity .25s; }
+.compartir-aviso.visible { opacity: 1; }
+
 /* =====================================================================
    6. RESEÑAS, TABLAS CON DESPLAZAMIENTO Y FORMULARIOS EN LÍNEA
    ===================================================================== */
@@ -720,7 +737,6 @@ body:has(.inicio-page) { min-height: 100vh; background: #f6f1e8; color: #1d2433;
   .inicio-acciones .ini-btn { flex: 1 1 100%; text-align: center; }
   .inicio-nav .ini-btn { padding: 7px 14px; font-size: 13px; }
 }
-
 /* =====================================================================
    9. PANEL DE ADMINISTRADOR (admin/menu.html)
    ===================================================================== */
@@ -746,22 +762,3 @@ body:has(.inicio-page) { min-height: 100vh; background: #f6f1e8; color: #1d2433;
   .barra-fila { grid-template-columns: 70px 1fr 100px; }
   .layout .filtro-tabla { max-width: none; }
 }
-
-/* =====================================================================
-   10. COMPARTIR VIVIENDA (ver_vivienda)
-   ===================================================================== */
-.compartir-box { padding: 22px; background: var(--glass-strong); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, .2); border-radius: 18px; box-shadow: 0 10px 40px rgba(10, 20, 50, .35); }
-.compartir-box h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; }
-.compartir-sub { margin-bottom: 18px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
-.compartir-lista { display: flex; flex-wrap: wrap; gap: 16px 14px; }
-.compartir-item { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 64px; padding: 0; border: none; background: none; font-family: inherit; font-size: 11.5px; line-height: 1.2; text-align: center; text-decoration: none; color: #fff; cursor: pointer; }
-.compartir-icono { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 50%; color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); transition: transform .2s, box-shadow .2s; }
-.compartir-icono svg { width: 22px; height: 22px; }
-.compartir-item:hover .compartir-icono, .compartir-item:focus-visible .compartir-icono { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0, 0, 0, .4); }
-.compartir-item:focus-visible { outline: 2px solid var(--sand); outline-offset: 4px; border-radius: 8px; }
-.compartir-whatsapp .compartir-icono { background: #25d366; }
-.compartir-facebook .compartir-icono { background: #1877f2; }
-.compartir-telegram .compartir-icono { background: #26a5e4; }
-.compartir-correo .compartir-icono { background: #6f7b94; }
-.compartir-copiar .compartir-icono { background: #fff; color: var(--navy-deep); }
-.compartir-aviso { min-height: 18px; margin-top: 14px; font-size: 12.5px; color: var(--success); }
