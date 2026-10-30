@@ -1,15 +1,20 @@
-import psycopg2 
+import os
+import psycopg2
 
 def conectar():
     try:
-        conexion = psycopg2.connect(
-            user="postgres",
-            password="123456",
-            host="localhost",
-            port="5432",
-            database="alquiler",
-            client_encoding="utf8"
-        )
+        url = os.environ.get("DATABASE_URL")
+        if url:
+            conexion = psycopg2.connect(url, client_encoding="utf8")
+        else:
+            conexion = psycopg2.connect(
+                user="postgres",
+                password="123456",
+                host="localhost",
+                port="5432",
+                database="alquiler",
+                client_encoding="utf8"
+            )
         return conexion
     except (Exception, psycopg2.Error) as error:
         print ("Error al conectar a postgreSQL: ", error)
