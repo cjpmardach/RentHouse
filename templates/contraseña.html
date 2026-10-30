@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recuperar contraseña</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+        <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/intl-tel-input@25.12.2/build/css/intlTelInput.css">
+    <script
+        src="https://cdn.jsdelivr.net/npm/intl-tel-input@25.12.2/build/js/intlTelInput.min.js"
+        defer>
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+    <link href="https://cdn.boxicons.com/3.0.8/fonts/basic/boxicons.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <div class="wrapper">
+        <form action="{{ url_for('recuperar_contraseña') }}" method="post">
+            <h1>Recuperar contraseña</h1>
+
+            {% if error %}
+                <p style="color: red; text-align: center;">{{ error }}</p>
+            {% endif %}
+
+            {% if mensaje %}
+                <p style="color: #6bff8a; text-align: center;">{{ mensaje }}</p>
+            {% endif %}
+
+            <div class="input-box">
+                <input type="email" name="correo" placeholder="Tu correo registrado" required>
+                <i class="bx bxs-envelope"></i>
+            </div>
+
+            <button type="submit" class="btn">Enviar contraseña temporal</button>
+
+            <div class="register-link">
+                <p>¿Ya la recordaste? <a href="{{ url_for('login') }}">Inicia sesión</a></p>
+            </div>
+        </form>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Mensajes</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="brand">RentHouse</div>
+    <div class="user">Sesión iniciada como <strong>{{ nombre }}</strong></div>
+  </div>
+
+  <div class="layout">
+
+    <aside class="sidebar">
+
+      {% if 'arrendador' in roles and 'arrendatario' in roles %}
+      <div class="greet">
+        <strong>Hola, {{ nombre }}</strong>
+        Tienes acceso a ambos paneles
+      </div>
+
+      <div class="section-title">Opciones de arrendatario</div>
+      <nav>
+        <a href="{{ url_for('menu_completo') }}#at-buscar">🔍 Buscar viviendas</a>
+        <a href="{{ url_for('menu_completo') }}#at-favoritos">❤️ Favoritos</a>
+        <a href="{{ url_for('menu_completo') }}#at-historial">🧾 Historial</a>
+        <a href="{{ url_for('menu_completo') }}#at-notificaciones">🔔 Notificaciones <span class="contador-notif" data-contador-notif="arrendatario"{{ '' if sin_leer_at else ' hidden' }}>{{ sin_leer_at }}</span></a>
+        <a href="{{ url_for('menu_completo') }}#at-perfil">👤 Mi perfil</a>
+      </nav>
+
+      <div class="section-title">Opciones de arrendador</div>
+      <nav>
+        <a href="{{ url_for('menu_completo') }}#ar-publicar">🏠 Publicar vivienda</a>
+        <a href="{{ url_for('menu_completo') }}#ar-viviendas">🏘 Mis viviendas</a>
+        <a href="{{ url_for('menu_completo') }}#ar-historial">📋 Historial de arrendador</a>
+        <a href="{{ url_for('menu_completo') }}#ar-notificaciones">🔔 Notificaciones <span class="contador-notif" data-contador-notif="arrendador"{{ '' if sin_leer_ar else ' hidden' }}>{{ sin_leer_ar }}</span></a>
+        <a href="{{ url_for('menu_completo') }}#ar-perfil">👤 Mi perfil</a>
+        <a href="{{ url_for('mensajes') }}" class="active">✉️ Mensajes</a>
+        <a href="{{ url_for('logout') }}">🚪Cerrar sesión</a>
+      </nav>
+
+      {% elif 'arrendador' in roles %}
+      <div class="greet">
+        <strong>Hola, {{ nombre }}</strong>
+        Panel de arrendador
+      </div>
+      <nav>
+        <a href="{{ url_for('menu_arrendador') }}#publicar">🏠 Publicar vivienda</a>
+        <a href="{{ url_for('menu_arrendador') }}#viviendas">🏘 Mis viviendas</a>
+        <a href="{{ url_for('menu_arrendador') }}#historial">📋 Historial de arrendador</a>
+        <a href="{{ url_for('menu_arrendador') }}#notificaciones">🔔 Notificaciones <span class="contador-notif" data-contador-notif="arrendador"{{ '' if sin_leer_ar else ' hidden' }}>{{ sin_leer_ar }}</span></a>
+        <a href="{{ url_for('menu_arrendador') }}#perfil">👤 Mi perfil</a>
+        <a href="{{ url_for('mensajes') }}" class="active">✉️ Mensajes</a>
+        <a href="{{ url_for('logout') }}">🚪Cerrar sesión</a>
+      </nav>
+
+      {% elif 'arrendatario' in roles %}
+      <div class="greet">
+        <strong>Hola, {{ nombre }}</strong>
+        Panel de arrendatario
+      </div>
+      <nav>
+        <a href="{{ url_for('menu_arrendatario') }}#buscar">🔍 Buscar viviendas</a>
+        <a href="{{ url_for('menu_arrendatario') }}#favoritos">❤️ Favoritos</a>
+        <a href="{{ url_for('menu_arrendatario') }}#historial">🧾 Historial</a>
+        <a href="{{ url_for('menu_arrendatario') }}#notificaciones">🔔 Notificaciones <span class="contador-notif" data-contador-notif="arrendatario"{{ '' if sin_leer_at else ' hidden' }}>{{ sin_leer_at }}</span></a>
+        <a href="{{ url_for('menu_arrendatario') }}#perfil">👤 Mi perfil</a>
+        <a href="{{ url_for('mensajes') }}" class="active">✉️ Mensajes</a>
+        <a href="{{ url_for('logout') }}">🚪Cerrar sesión</a>
+      </nav>
+      {% endif %}
+    </aside>
+
+    <div class="content">
+      <h1>Mensajes</h1>
+
+      <div class="messages-layout">
+        <div class="conv-list">
+          {% if conversaciones %}
+            <div class="conv-section-title">Conversaciones</div>
+            {% for c in conversaciones %}
+            <a href="{{ url_for('ver_mensajes', cod_vi=c.cod_vi, cod_otro=c.cod_otro) }}" class="conv-item {{ 'active' if c.cod_vi == cod_vi_activo and c.cod_otro == cod_otro_activo else '' }}">
+              <div class="name">{{ c.titulo }} <span class="role-tag">— {{ c.direccion }}</span></div>
+              {% if c.soy_dueno %}
+              <div class="preview">Arrendatario: {{ c.nombre_otro }}</div>
+              {% endif %}
+              <div class="preview">{{ c.ultimo }}</div>
+            </a>
+            {% endfor %}
+          {% endif %}
+
+          {% if viviendas_disponibles %}
+            <div class="conv-section-title">Iniciar conversación</div>
+            {% for v in viviendas_disponibles %}
+            <a href="{{ url_for('ver_mensajes', cod_vi=v.cod_vi, cod_otro=v.cod_dueno) }}" class="conv-item">
+              <div class="name">{{ v.titulo }} <span class="role-tag">— {{ v.direccion }}</span></div>
+              <div class="preview">Enviar un mensaje nuevo</div>
+            </a>
+            {% endfor %}
+          {% endif %}
+
+          {% if not conversaciones and not viviendas_disponibles %}
+            <p style="padding:14px; font-size:13px; color:var(--text-muted);">No hay viviendas con las que puedas iniciar una conversación todavía.</p>
+          {% endif %}
+        </div>
+
+        <div class="chat-pane">
+          {% if cod_otro_activo %}
+            <div class="chat-cuerpo">
+              <h3 style="font-size:15px; margin-bottom:12px;">{{ titulo_activo }} <span class="role-tag">— {{ direccion_activa }}</span>
+                {% if soy_dueno_activo %}<br><span class="role-tag">Arrendatario: {{ nombre_otro_activo }}</span>{% endif %}
+              </h3>
+              <div class="chat-hilo" id="chat-hilo" data-ultimo="{{ ultimo_id }}">
+                {% for m in mensajes_hilo %}
+                <div class="chat-bubble{{ ' mine' if m.mio else '' }}" data-id="{{ m.cod_men }}"><strong class="chat-etiqueta">{{ m.etiqueta }}</strong>{{ m.contenido }}</div>
+                {% else %}
+                <p id="chat-vacio" style="color:var(--text-muted); font-size:13px;">Todavía no hay mensajes. Escribe el primero.</p>
+                {% endfor %}
+              </div>
+            </div>
+            <form method="post" class="chat-input" id="chat-form">
+              <input type="text" name="contenido" placeholder="Escribe un mensaje..." required autocomplete="off" maxlength="1000">
+              <button type="submit" class="btn btn-primary">Enviar</button>
+            </form>
+          {% else %}
+            <p class="chat-empty">Selecciona una conversación o inicia una nueva.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function actualizarContador() {
+      fetch("{{ url_for('contador_notificaciones') }}")
+        .then(respuesta => respuesta.ok ? respuesta.json() : null)
+        .then(datos => {
+          if (!datos) return;
+          document.querySelectorAll('[data-contador-notif]').forEach(circulo => {
+            const total = datos[circulo.dataset.contadorNotif];
+            if (total === undefined) return;
+            circulo.textContent = total;
+            circulo.hidden = total === 0;
+          });
+        })
+        .catch(() => {});
+    }
+    setInterval(actualizarContador, 10000);
+  </script>
+
+  {% if cod_otro_activo %}
+  <script>
+    (function () {
+      const hilo = document.getElementById('chat-hilo');
+      const formulario = document.getElementById('chat-form');
+      if (!hilo || !formulario) return;
+      const campo = formulario.querySelector('input[name="contenido"]');
+
+      const urlNuevos = "{{ url_for('mensajes_nuevos', cod_vi=cod_vi_activo, cod_otro=cod_otro_activo) }}";
+      const urlEnviar = "{{ url_for('enviar_mensaje', cod_vi=cod_vi_activo, cod_otro=cod_otro_activo) }}";
+      const urlSalir = "{{ url_for('salir_chat', cod_vi=cod_vi_activo, cod_otro=cod_otro_activo) }}";
+
+      let ultimo = parseInt(hilo.dataset.ultimo, 10) || 0;
+      const vistos = new Set(Array.from(hilo.querySelectorAll('.chat-bubble')).map(b => b.dataset.id));
+
+      function estaAbajo() { return hilo.scrollHeight - hilo.scrollTop - hilo.clientHeight < 80; }
+      function irAbajo() { hilo.scrollTop = hilo.scrollHeight; }
+
+      function pintar(m) {
+        const id = String(m.cod_men);
+        if (vistos.has(id)) return false;
+        vistos.add(id);
+
+        const vacio = document.getElementById('chat-vacio');
+        if (vacio) vacio.remove();
+
+        const burbuja = document.createElement('div');
+        burbuja.className = 'chat-bubble' + (m.mio ? ' mine' : '');
+        burbuja.dataset.id = id;
+        const etiqueta = document.createElement('strong');
+        etiqueta.className = 'chat-etiqueta';
+        etiqueta.textContent = m.etiqueta;
+        burbuja.appendChild(etiqueta);
+        burbuja.appendChild(document.createTextNode(m.contenido));
+
+        const siguiente = Array.from(hilo.querySelectorAll('.chat-bubble')).find(b => Number(b.dataset.id) > m.cod_men);
+        hilo.insertBefore(burbuja, siguiente || null);
+        return true;
+      }
+
+      let consultando = false;
+      function consultar() {
+        if (consultando || document.hidden) return;
+        consultando = true;
+        fetch(urlNuevos + '?despues=' + ultimo, { headers: { 'Accept': 'application/json' } })
+          .then(r => r.ok ? r.json() : null)
+          .then(datos => {
+            if (!datos) return;
+            const abajo = estaAbajo();
+            let hubo = false;
+            datos.mensajes.forEach(m => {
+              if (pintar(m)) hubo = true;
+              if (m.cod_men > ultimo) ultimo = m.cod_men;
+            });
+            if (hubo && abajo) irAbajo();
+          })
+          .catch(() => {})
+          .finally(() => { consultando = false; });
+      }
+      setInterval(consultar, 2000);
+
+      function salirDelChat() { if (navigator.sendBeacon) navigator.sendBeacon(urlSalir); }
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) { salirDelChat(); } else { consultar(); }
+      });
+      window.addEventListener('pagehide', salirDelChat);
+
+      let enviando = false;
+      formulario.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (enviando || !campo.value.trim()) return;
+        enviando = true;
+        fetch(urlEnviar, { method: 'POST', body: new FormData(formulario) })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(datos => { pintar(datos.mensaje); campo.value = ''; irAbajo(); })
+          .catch(() => { alert('No se pudo enviar el mensaje. Intenta de nuevo.'); })
+          .finally(() => { enviando = false; campo.focus(); });
+      });
+
+      irAbajo();
+    })();
+  </script>
+  {% endif %}
+
+</body>
+</html>

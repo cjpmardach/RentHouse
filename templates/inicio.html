@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Bienvenido</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <header class="inicio-nav">
+    <a href="{{ url_for('inicio') }}" class="brand">RentHouse</a>
+    <nav class="menu">
+      <a href="#mision">Misión y visión</a>
+      <a href="#como-funciona">Cómo funciona</a>
+      <a href="#para-quien">Para quién</a>
+      <a href="{{ url_for('login') }}" class="ini-btn ini-btn-borde-oscuro">Iniciar sesión</a>
+      <a href="{{ url_for('registro') }}" class="ini-btn ini-btn-azul">Crear cuenta</a>
+    </nav>
+  </header>
+
+  <main class="inicio-page">
+
+    <section class="inicio-hero">
+      <div class="interior">
+        <h1>Alquila o publica tu vivienda en un solo lugar.</h1>
+        <p>En RentHouse los arrendadores publican sus viviendas y los arrendatarios las buscan. Todo el alquiler queda registrado: el chat, los pagos y las reseñas.</p>
+        <div class="inicio-acciones">
+          <a href="{{ url_for('login') }}" class="ini-btn ini-btn-arena">Iniciar sesión</a>
+          <a href="{{ url_for('registro') }}" class="ini-btn ini-btn-borde">Crear cuenta</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="inicio-bloque" id="mision">
+      <h2>Misión y visión</h2>
+      <div class="ini-dos">
+        <div>
+          <div class="ini-etiqueta">Misión</div>
+          <p>Facilitar el alquiler de viviendas conectando a arrendadores y arrendatarios en una plataforma simple, donde se pueda publicar, conversar y llevar el control de los pagos.</p>
+        </div>
+        <div>
+          <div class="ini-etiqueta">Visión</div>
+          <p>Ser la plataforma de alquiler de viviendas de referencia en Colombia, reconocida por su claridad y por la confianza entre quienes la usan.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="inicio-bloque" id="como-funciona">
+      <h2>Cómo funciona</h2>
+      <div class="ini-pasos">
+        <div>
+          <div class="ini-num">01</div>
+          <h3>Crea tu cuenta</h3>
+          <p>Elige si quieres ser arrendador, arrendatario o ambos. Con la misma cuenta puedes usar los dos roles.</p>
+        </div>
+        <div>
+          <div class="ini-num">02</div>
+          <h3>Publica o busca</h3>
+          <p>Sube tu vivienda con fotos y videos, o busca por ciudad y número de huéspedes.</p>
+        </div>
+        <div>
+          <div class="ini-num">03</div>
+          <h3>Habla y registra</h3>
+          <p>Escríbele a la otra persona desde la vivienda y deja registrados el alquiler y los pagos.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="inicio-bloque" id="para-quien">
+      <h2>Para quién es</h2>
+      <div class="ini-roles">
+        <div class="ini-rol ini-rol-azul">
+          <h3>Si buscas vivienda</h3>
+          <ul>
+            <li>Buscar por ciudad y número de huéspedes</li>
+            <li>Guardar viviendas en favoritos</li>
+            <li>Escribirle al arrendador</li>
+            <li>Ver los pagos registrados a tu nombre</li>
+            <li>Calificar al arrendador</li>
+          </ul>
+        </div>
+        <div class="ini-rol ini-rol-arena">
+          <h3>Si tienes vivienda</h3>
+          <ul>
+            <li>Publicar con fotos y videos</li>
+            <li>Asociar al arrendatario a cada alquiler</li>
+            <li>Registrar pagos y su estado</li>
+            <li>Ver las reseñas de cada arrendatario</li>
+            <li>Recibir avisos de mensajes y solicitudes</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="inicio-cierre">
+      <div class="interior">
+        <div>
+          <h2>Empieza hoy</h2>
+          <p>Crea tu cuenta o inicia sesión si ya tienes una.</p>
+        </div>
+        <div class="inicio-acciones">
+          <a href="{{ url_for('registro') }}" class="ini-btn ini-btn-arena">Crear cuenta</a>
+          <a href="{{ url_for('login') }}" class="ini-btn ini-btn-borde">Iniciar sesión</a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="inicio-pie">
+      <p>RentHouse &middot; Soporte: <a href="mailto:soporterenthaouse@gmail.com">soporterenthaouse@gmail.com</a></p>
+    </footer>
+
+  </main>
+
+</body>
+</html>

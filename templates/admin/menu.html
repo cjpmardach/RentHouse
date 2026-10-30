@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Administración</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="brand">RentHouse &middot; Administración</div>
+    <div class="user">Sesión iniciada como <strong>{{ nombre }}</strong></div>
+  </div>
+
+  <div class="layout">
+
+    <aside class="sidebar">
+      <div class="greet">
+        <strong>Hola, {{ nombre }}</strong>
+        Panel de administrador
+      </div>
+      <nav>
+        <a href="#" data-target="resumen" class="active">📊 Resumen</a>
+        <a href="#" data-target="usuarios">👥 Usuarios</a>
+        <a href="#" data-target="viviendas">🏘 Viviendas</a>
+        <a href="#" data-target="alquileres">📋 Alquileres y pagos</a>
+        <a href="#" data-target="resenas">⭐ Reseñas</a>
+        <a href="#" data-target="anuncios">📣 Anuncios</a>
+        <a href="#" data-target="actividad">🗒 Actividad</a>
+        <a href="#" data-target="cuenta">👤 Mi cuenta</a>
+        <a href="{{ url_for('logout') }}">🚪Cerrar sesión</a>
+      </nav>
+    </aside>
+
+    <div class="content">
+
+      <section class="screen active" id="resumen">
+        <span class="screen-label"> RESUMEN</span>
+        <h1>Resumen general</h1>
+        <p class="subtitle">Así va RentHouse hoy.</p>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.usuarios_activos }}</div>
+            <div class="stat-label">Usuarios activos</div>
+            <div class="stat-sub">{{ resumen.usuarios_inactivos }} inactivos</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.arrendadores }}</div>
+            <div class="stat-label">Arrendadores</div>
+            <div class="stat-sub">{{ resumen.ambos }} con ambos roles</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.arrendatarios }}</div>
+            <div class="stat-label">Arrendatarios</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.viviendas }}</div>
+            <div class="stat-label">Viviendas publicadas</div>
+            <div class="stat-sub">{{ resumen.viviendas_disponibles }} disponibles &middot; {{ resumen.viviendas_alquiladas }} alquiladas &middot; {{ resumen.viviendas_ocultas }} ocultas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.alquileres_activos }}</div>
+            <div class="stat-label">Alquileres activos</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.solicitudes_pendientes }}</div>
+            <div class="stat-label">Solicitudes pendientes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.pagos_mes|cop }}</div>
+            <div class="stat-label">Pagos cobrados este mes</div>
+            <div class="stat-sub">{{ resumen.pagos_pendientes_mes }} pendientes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num">{{ resumen.resenas }}</div>
+            <div class="stat-label">Reseñas</div>
+            <div class="stat-sub">{% if resumen.promedio_resenas is not none %}Promedio {{ resumen.promedio_resenas }} / 5{% else %}Sin calificaciones{% endif %}</div>
+          </div>
+        </div>
+
+        <h2 class="historial-titulo">Pagos cobrados, últimos 6 meses</h2>
+        <div class="barras">
+          {% for b in resumen.barras %}
+          <div class="barra-fila">
+            <span>{{ b.etiqueta }}</span>
+            <div class="barra"><span style="width: {{ b.pct }}%"></span></div>
+            <span class="barra-valor">{{ b.total|cop }}</span>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="admin-dos">
+          <div>
+            <h2 class="historial-titulo">Últimos usuarios</h2>
+            <div class="tabla-scroll">
+            <table>
+              <thead>
+                <tr><th>Nombre</th><th>Roles</th><th>Estado</th></tr>
+              </thead>
+              <tbody>
+                {% for u in usuarios[:5] %}
+                <tr>
+                  <td>{{ u.nombre }}</td>
+                  <td>{{ u.roles | join(', ') }}</td>
+                  <td><span class="status {{ 'inactive' if u.estado == 'inactivo' else 'active' }}">{{ u.estado }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="tabla-vacia">Sin usuarios.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+          </div>
+          <div>
+            <h2 class="historial-titulo">Últimas viviendas</h2>
+            <div class="tabla-scroll">
+            <table>
+              <thead>
+                <tr><th>Título</th><th>Ciudad</th><th>Estado</th></tr>
+              </thead>
+              <tbody>
+                {% for v in viviendas[:5] %}
+                <tr>
+                  <td>{{ v.titulo }}</td>
+                  <td>{{ v.ciudad }}</td>
+                  <td><span class="status {{ 'active' if v.estado == 'disponible' else 'pending' }}">{{ v.estado }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="tabla-vacia">Sin viviendas.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen" id="usuarios">
+        <span class="screen-label"> USUARIOS</span>
+        <h1>Usuarios</h1>
+        <p class="subtitle">Busca cuentas y activa o desactiva el acceso. Una cuenta desactivada no puede iniciar sesión.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['admin_ok', 'admin_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'admin_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="toolbar">
+          <input type="text" data-filtrar="tabla-usuarios" placeholder="Buscar por nombre, correo, ciudad o rol..." class="filtro-tabla">
+        </div>
+
+        <div class="tabla-scroll">
+        <table id="tabla-usuarios">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Nombre</th>
+              <th>Correo</th>
+              <th>Ciudad</th>
+              <th>Roles</th>
+              <th>Estado</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in usuarios %}
+            <tr>
+              <td>{{ u.cod_usu }}</td>
+              <td>{{ u.nombre }}</td>
+              <td>{{ u.correo }}</td>
+              <td>{{ u.ciudad }}</td>
+              <td>{{ u.roles | join(', ') }}</td>
+              <td><span class="status {{ 'inactive' if u.estado == 'inactivo' else 'active' }}">{{ u.estado }}</span></td>
+              <td>
+                {% if u.es_admin or u.cod_usu == yo %}
+                —
+                {% else %}
+                <form method="post" action="{{ url_for('admin_cambiar_estado_usuario', cod_usu=u.cod_usu) }}" class="form-inline" onsubmit="return confirm('{{ '¿Reactivar' if u.estado == 'inactivo' else '¿Desactivar' }} esta cuenta?');">
+                  <button type="submit" class="btn btn-sm{{ '' if u.estado == 'inactivo' else ' btn-danger' }}">{{ 'Reactivar' if u.estado == 'inactivo' else 'Desactivar' }}</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="tabla-vacia">No hay usuarios.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section class="screen" id="viviendas">
+        <span class="screen-label"> VIVIENDAS</span>
+        <h1>Viviendas</h1>
+        <p class="subtitle">Oculta una publicación para que no aparezca en las búsquedas, o elimínala si es inapropiada.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['admin_ok', 'admin_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'admin_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="toolbar">
+          <input type="text" data-filtrar="tabla-viviendas" placeholder="Buscar por título, ciudad o dueño..." class="filtro-tabla">
+        </div>
+
+        <div class="tabla-scroll">
+        <table id="tabla-viviendas">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Título</th>
+              <th>Ciudad</th>
+              <th>Precio</th>
+              <th>Dueño</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in viviendas %}
+            <tr>
+              <td>{{ v.cod_vi }}</td>
+              <td>{{ v.titulo }}</td>
+              <td>{{ v.ciudad }}</td>
+              <td>{{ v.precio|cop }}</td>
+              <td>{{ v.dueno }}</td>
+              <td><span class="status {{ 'active' if v.estado == 'disponible' else 'pending' }}">{{ v.estado }}</span></td>
+              <td>
+                <a href="{{ url_for('ver_vivienda', cod_vi=v.cod_vi) }}" class="btn btn-sm">Ver</a>
+                <form method="post" action="{{ url_for('admin_cambiar_estado_vivienda', cod_vi=v.cod_vi) }}" class="form-inline" onsubmit="return confirm('¿{{ 'Ocultar' if v.estado_real == 'disponible' else 'Volver a publicar' }} esta vivienda?');">
+                  <button type="submit" class="btn btn-sm">{{ 'Ocultar' if v.estado_real == 'disponible' else 'Mostrar' }}</button>
+                </form>
+                <form method="post" action="{{ url_for('admin_eliminar_vivienda', cod_vi=v.cod_vi) }}" class="form-inline" onsubmit="return confirm('¿Eliminar esta vivienda definitivamente? No se puede deshacer.');">
+                  <button type="submit" class="btn btn-sm btn-danger">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="tabla-vacia">No hay viviendas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section class="screen" id="alquileres">
+        <span class="screen-label"> ALQUILERES Y PAGOS</span>
+        <h1>Alquileres y pagos</h1>
+        <p class="subtitle">Vista de consulta de todos los alquileres y los últimos pagos registrados.</p>
+
+        <h2 class="historial-titulo">Alquileres</h2>
+        <div class="toolbar">
+          <input type="text" data-filtrar="tabla-alquileres" placeholder="Buscar por vivienda o persona..." class="filtro-tabla">
+        </div>
+        <div class="tabla-scroll">
+        <table id="tabla-alquileres">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Vivienda</th>
+              <th>Arrendador</th>
+              <th>Arrendatario</th>
+              <th>Periodo</th>
+              <th>Alquiler</th>
+              <th>Pago</th>
+              <th>Pagos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in alquileres %}
+            <tr>
+              <td>{{ a.cod_ar }}</td>
+              <td>{{ a.titulo }}</td>
+              <td>{{ a.arrendador }}</td>
+              <td>{{ a.arrendatario }}</td>
+              <td>{{ a.fecha_inicio.strftime('%d/%m/%Y') if a.fecha_inicio else '?' }} al {{ a.fecha_fin.strftime('%d/%m/%Y') if a.fecha_fin else 'sin fecha de fin' }}</td>
+              <td><span class="status {{ 'active' if a.estado_alquiler == 'Activo' else 'pending' }}">{{ a.estado_alquiler }}</span></td>
+              <td><span class="status {{ 'active' if a.estado_pago == 'pagado' else 'pending' }}">{{ a.estado_pago }}</span></td>
+              <td>{{ a.pagos }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="tabla-vacia">No hay alquileres.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+
+        <h2 class="historial-titulo">Últimos pagos</h2>
+        <div class="tabla-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Vivienda</th>
+              <th>Arrendatario</th>
+              <th>Fecha</th>
+              <th>Monto</th>
+              <th>Método</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in pagos %}
+            <tr>
+              <td>{{ p.titulo }}</td>
+              <td>{{ p.arrendatario }}</td>
+              <td>{{ p.fecha_pago.strftime('%d/%m/%Y') }}</td>
+              <td>{{ p.monto|cop }}</td>
+              <td>{{ p.metodo_pago }}</td>
+              <td><span class="status {{ 'active' if p.estado == 'Pagado' else 'pending' }}">{{ p.estado }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="tabla-vacia">No hay pagos registrados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section class="screen" id="resenas">
+        <span class="screen-label"> RESEÑAS</span>
+        <h1>Reseñas</h1>
+        <p class="subtitle">Elimina las reseñas ofensivas o falsas.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['admin_ok', 'admin_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'admin_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="toolbar">
+          <input type="text" data-filtrar="tabla-resenas" placeholder="Buscar por autor, vivienda o comentario..." class="filtro-tabla">
+        </div>
+
+        <div class="tabla-scroll">
+        <table id="tabla-resenas">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Autor</th>
+              <th>Vivienda</th>
+              <th>Calificación</th>
+              <th>Comentario</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in resenas %}
+            <tr>
+              <td>{{ r.fecha.strftime('%d/%m/%Y') if r.fecha else '' }}</td>
+              <td>{{ r.autor }}</td>
+              <td>{{ r.titulo or '—' }}</td>
+              <td><span class="resena-estrellas">{{ '★' * (r.calificacion or 0) }}{{ '☆' * (5 - (r.calificacion or 0)) }}</span></td>
+              <td class="celda-larga">{{ r.comentario or '—' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin_eliminar_resena', cod_re=r.cod_re) }}" class="form-inline" onsubmit="return confirm('¿Eliminar esta reseña?');">
+                  <button type="submit" class="btn btn-sm btn-danger">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="tabla-vacia">No hay reseñas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section class="screen" id="anuncios">
+        <span class="screen-label"> ANUNCIOS</span>
+        <h1>Anuncios</h1>
+        <p class="subtitle">Envía una notificación a los usuarios. Les aparece en su campana de Notificaciones.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['admin_ok', 'admin_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'admin_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <form class="form-grid" action="{{ url_for('admin_enviar_anuncio') }}" method="post" onsubmit="return confirm('¿Enviar este anuncio?');">
+          <div class="full">
+            <label>Destinatarios</label>
+            <select name="destino" required>
+              <option value="" disabled selected>Selecciona a quién enviarlo</option>
+              <option value="todos">Todos los usuarios</option>
+              <option value="arrendadores">Solo arrendadores</option>
+              <option value="arrendatarios">Solo arrendatarios</option>
+            </select>
+          </div>
+          <div class="full">
+            <label>Mensaje (máximo 200 caracteres)</label>
+            <textarea name="mensaje" maxlength="200" placeholder="Ej. Mañana el sitio estará en mantenimiento de 2 a 3 a. m." required></textarea>
+          </div>
+          <div class="full form-actions">
+            <button type="submit" class="btn btn-primary">Enviar anuncio</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="screen" id="actividad">
+        <span class="screen-label"> ACTIVIDAD</span>
+        <h1>Actividad del administrador</h1>
+        <p class="subtitle">Registro de las últimas 50 acciones hechas desde este panel.</p>
+
+        <div class="tabla-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Administrador</th>
+              <th>Acción</th>
+              <th>Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for l in actividad %}
+            <tr>
+              <td>{{ l.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ l.admin }}</td>
+              <td>{{ l.accion }}</td>
+              <td class="celda-larga">{{ l.detalle or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="tabla-vacia">Todavía no hay actividad registrada.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section class="screen" id="cuenta">
+        <span class="screen-label"> MI CUENTA</span>
+        <h1>Mi cuenta</h1>
+        <p class="subtitle">Cambia la contraseña de administrador.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['ok', 'error'] %}
+          <div class="alerta alerta-{{ categoria }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <form action="{{ url_for('cambiar_password') }}" method="post" class="profile-fields">
+          <input type="hidden" name="destino" value="admin">
+          <div>
+            <label>Contraseña actual</label>
+            <input type="password" name="password_actual" required>
+          </div>
+          <div>
+            <label>Contraseña nueva</label>
+            <input type="password" name="password_nueva" required minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[\d!@#$%^&*()_+\-={}[\]|:;,.?]).{8,}" title="Mínimo 8 caracteres: una mayúscula, una minúscula y un número o símbolo.">
+          </div>
+          <div>
+            <label>Confirmar contraseña nueva</label>
+            <input type="password" name="password_confirmar" required>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Guardar contraseña</button>
+          </div>
+        </form>
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('[data-target]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = link.dataset.target;
+
+        document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+        const sidebarMatch = document.querySelector('.sidebar nav a[data-target="' + targetId + '"]');
+        if (sidebarMatch) sidebarMatch.classList.add('active');
+
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(targetId).classList.add('active');
+      });
+    });
+
+    document.querySelectorAll('[data-filtrar]').forEach(campo => {
+      const normalizar = texto => texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      campo.addEventListener('input', () => {
+        const buscado = normalizar(campo.value.trim());
+        const tabla = document.getElementById(campo.dataset.filtrar);
+        if (!tabla) return;
+        tabla.querySelectorAll('tbody tr').forEach(fila => {
+          fila.style.display = normalizar(fila.textContent).includes(buscado) ? '' : 'none';
+        });
+      });
+    });
+
+    const pantallaInicial = location.hash.slice(1);
+    if (pantallaInicial) {
+      const enlace = document.querySelector('.sidebar nav a[data-target="' + pantallaInicial + '"]');
+      if (enlace) enlace.click();
+    }
+  </script>
+
+</body>
+</html>

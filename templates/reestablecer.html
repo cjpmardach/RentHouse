@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Nueva contraseña</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="wrapper">
+    {% if valido %}
+    <form method="post">
+      <h1>Nueva contraseña</h1>
+
+      {% if error %}
+      <div class="error-msg">{{ error }}</div>
+      {% endif %}
+
+      <div class="input-box">
+        <input type="password" name="password_nueva" placeholder="Contraseña nueva" required minlength="8">
+      </div>
+      <div class="input-box">
+        <input type="password" name="password_confirmar" placeholder="Confirmar contraseña nueva" required>
+      </div>
+
+      <button type="submit" class="btn">Guardar contraseña</button>
+    </form>
+    {% else %}
+    <h1>Contraseña</h1>
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    {% if mensaje %}
+    <div class="alerta alerta-ok">{{ mensaje }}</div>
+    {% endif %}
+    {% endif %}
+
+    <div class="register-link">
+      <p><a href="{{ url_for('login') }}">Volver al inicio de sesión</a></p>
+    </div>
+  </div>
+
+</body>
+</html>

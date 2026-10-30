@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Selecciona tu rol</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+    <link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+    <link href="https://cdn.boxicons.com/3.0.8/fonts/basic/boxicons.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <div class="wrapper">
+        <h1>¡Hola, {{ nombre }}!</h1>
+        <p style="text-align: center; margin-top: 10px; opacity: 0.85;">¿Cómo quieres entrar hoy?</p>
+
+        <div class="roles-box">
+            <a href="{{ url_for('elegir_arrendador') }}" class="rol-card">
+                <i class="bx bx-building-house"></i>
+                <div class="texto">
+                    <strong>Arrendador</strong>
+                    <span>Publicar y administrar mis viviendas</span>
+                </div>
+            </a>
+
+            <a href="{{ url_for('elegir_arrendatario') }}" class="rol-card">
+                <i class="bx bx-search-alt"></i>
+                <div class="texto">
+                    <strong>Arrendatario</strong>
+                    <span>Buscar y rentar una vivienda</span>
+                </div>
+            </a>
+        </div>
+
+        <div class="register-link">
+            <p><a href="{{ url_for('logout') }}">Cerrar sesión</a></p>
+        </div>
+    </div>
+
+</body>
+</html>

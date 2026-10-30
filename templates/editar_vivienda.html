@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Editar vivienda</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="brand">RentHouse</div>
+    <div class="right">
+      <a href="{{ url_inicio }}">Inicio</a>
+      {% if url_publicar %}
+      <a href="{{ url_publicar }}">Publicar Casa</a>
+      {% endif %}
+      <a href="{{ url_perfil }}">Mi Perfil</a>
+      <div class="user">Sesión iniciada como <strong>{{ nombre }}</strong></div>
+    </div>
+  </div>
+
+  <div class="layout layout-centrado">
+    <div class="content">
+      <a href="{{ volver }}" class="back-link">&larr; Volver a mis viviendas</a>
+      <h1>Editar vivienda</h1>
+      <p class="subtitle">Modifica los datos, quita archivos o agrega fotos y videos nuevos.</p>
+
+      {% with mensajes = get_flashed_messages(with_categories=true) %}
+        {% for categoria, texto in mensajes if categoria in ['editar_error'] %}
+        <div class="alerta alerta-error">{{ texto }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <form class="form-grid" action="{{ url_for('editar_vivienda', cod_vi=vivienda.cod_vi) }}" method="post" enctype="multipart/form-data">
+        <div class="full">
+          <label>Título de la publicación</label>
+          <input type="text" name="titulo" value="{{ vivienda.titulo }}" required>
+        </div>
+
+        <div>
+          <label>Dirección</label>
+          <input type="text" name="direccion" value="{{ vivienda.direccion }}" required>
+        </div>
+        <div>
+          <label>Ciudad</label>
+          <input type="text" name="ciudad" value="{{ vivienda.ciudad }}" required>
+        </div>
+
+        <div>
+          <label>Precio por mes</label>
+          <input type="number" name="precio" value="{{ vivienda.precio | int }}" min="1" required>
+        </div>
+        <div>
+          <label>Estrato</label>
+          <input type="number" name="estrato" value="{{ vivienda.estrato }}" min="1" max="6" required>
+        </div>
+
+        <div>
+          <label>Huéspedes máximo</label>
+          <input type="number" name="huespedes_max" value="{{ vivienda.huespedes_max }}" min="1" required>
+        </div>
+        <div>
+          <label>Tipo de vivienda</label>
+          <select name="tipo_vivienda" required>
+            {% for t in ['Casa', 'Apartamento', 'Finca'] %}
+            <option value="{{ t }}" {{ 'selected' if vivienda.tipo_vivienda == t else '' }}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label>Habitaciones</label>
+          <input type="number" name="habitaciones" value="{{ vivienda.habitaciones }}" min="0" required>
+        </div>
+        <div>
+          <label>Baños</label>
+          <input type="number" name="banos" value="{{ vivienda.banos }}" min="0" required>
+        </div>
+
+        <div>
+          <label>Estado</label>
+          <select name="estado" required>
+            {% for e in estados %}
+            <option value="{{ e }}" {{ 'selected' if vivienda.estado == e else '' }}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div></div>
+
+        <div class="full">
+          <label>Descripción</label>
+          <textarea name="descripcion" required>{{ vivienda.descripcion }}</textarea>
+        </div>
+
+        <div class="full">
+          <label>Amenidades</label>
+          <div class="amenities-check">
+            <label><input type="checkbox" name="wifi" {{ 'checked' if vivienda.wifi }}> Wifi</label>
+            <label><input type="checkbox" name="piscina" {{ 'checked' if vivienda.piscina }}> Piscina</label>
+            <label><input type="checkbox" name="cocina_equipada" {{ 'checked' if vivienda.cocina_equipada }}> Cocina equipada</label>
+            <label><input type="checkbox" name="estacionamiento" {{ 'checked' if vivienda.estacionamiento }}> Estacionamiento</label>
+            <label><input type="checkbox" name="aire_acondicionado" {{ 'checked' if vivienda.aire_acondicionado }}> Aire acondicionado</label>
+            <label><input type="checkbox" name="mascotas_permitidas" {{ 'checked' if vivienda.mascotas_permitidas }}> Mascotas permitidas</label>
+          </div>
+        </div>
+
+        <div class="full">
+          <label>Archivos actuales (marca los que quieras eliminar)</label>
+          {% if archivos %}
+          <div class="editar-archivos">
+            {% for archivo in archivos %}
+            <div class="editar-archivo">
+              {% if archivo.es_video %}
+              <video src="{{ url_for('static', filename='uploads/' ~ archivo.url) }}" controls preload="metadata" playsinline></video>
+              {% else %}
+              <img src="{{ url_for('static', filename='uploads/' ~ archivo.url) }}" alt="Foto de la vivienda">
+              {% endif %}
+              <label>
+                <input type="checkbox" name="eliminar" value="{{ archivo.cod_foto }}">
+                Eliminar {{ 'video' if archivo.es_video else 'foto' }}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="upload-hint">Esta vivienda todavía no tiene fotos ni videos.</p>
+          {% endif %}
+        </div>
+
+        <div class="full">
+          <label>Agregar fotos y videos</label>
+          <label class="upload-box" style="display:block; cursor:pointer;">
+            Selecciona tus fotos y videos
+            <input type="file" name="archivos" accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.mov" multiple>
+          </label>
+          <p class="upload-hint">Fotos: JPG, PNG o WEBP. Videos: MP4, WEBM o MOV, máximo 100 MB cada uno.</p>
+        </div>
+
+        <div class="full form-actions">
+          <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          <a href="{{ volver }}" class="btn">Cancelar</a>
+        </div>
+      </form>
+
+      <div class="zona-peligro">
+        <h2>Eliminar vivienda</h2>
+        <p class="subtitle">Se eliminará la vivienda con todos sus archivos, favoritos y conversaciones.</p>
+        <a href="{{ url_for('eliminar_vivienda', cod_vi=vivienda.cod_vi) }}" class="btn btn-danger">Eliminar vivienda</a>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

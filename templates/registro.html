@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+    <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/intl-tel-input@25.12.2/build/css/intlTelInput.css">
+    <script
+        src="https://cdn.jsdelivr.net/npm/intl-tel-input@25.12.2/build/js/intlTelInput.min.js"
+        defer>
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+    <link href="https://cdn.boxicons.com/3.0.8/fonts/basic/boxicons.min.css" rel="stylesheet">
+</head>
+
+<body>
+    <div class="wrapper registro-wrapper">
+        <form action="{{ url_for('registro') }}" method="post">
+            <h1>Crear cuenta</h1>
+
+            {% if error %}
+              <p style="color: red; text-align: center;">{{ error }}</p>
+            {% endif %}
+
+            <div class="input-box">
+                <input type="text" name="nombre" placeholder="Nombre completo" required>
+                <i class="bxf bx-user"></i>
+            </div>
+
+            <div class="input-box">
+                <input type="date" name="fecha_nacimiento" required title="Debes ser mayor de edad">
+                <i class="bxf bx-age"></i>
+            </div>
+
+            <div class="input-box">
+                <select name="tipo_identificacion" required>
+                    <option value="" disabled selected>Tipo de identificación</option>
+                    <option value="CC">Cédula de ciudadanía</option>
+                    <option value="CE">Cédula de extranjería</option>
+                    <option value="PA">Pasaporte</option>
+                </select>
+            </div>
+
+            <div class="input-box">
+                <input type="text" name="identificacion" placeholder="Número de identificación" required>
+                <i class="bxf bx-id-card"></i>
+            </div>
+
+            <div class="input-box">
+            <select name="ciudad" required>
+              <option value="" disabled selected>Selecciona una ciudad</option>
+              <option value="Barranquilla">Barranquilla</option>
+              <option value="Soledad">Soledad</option>
+            </select>
+             <i class="bxf bx-map"></i>
+            </div>
+
+            <div class="input-box">
+                <input type="email" name="correo" placeholder="Correo electrónico" required>
+                <i class="bxf bx-envelope"></i>
+            </div>
+
+            <div class="input-box">
+                <input 
+                    id="telefono"
+                    type="tel"
+                    name="telefono"
+                    placeholder="Teléfono"
+                    required
+                    maxlength="10"
+                    inputmode="numeric"
+                    pattern="[0-9]{10}"
+                    title="El número de telefono debe contener 10 digitos">
+                <i class="bx bx-phone"></i>
+            </div>
+
+            <div class="input-box roles-box">
+                <p>¿Qué quieres ser? (puedes marcar ambos)</p>
+                <label>
+                    <input type="checkbox" name="roles" value="arrendador">
+                    Arrendador (quiero publicar viviendas)
+                </label>
+                <label>
+                    <input type="checkbox" name="roles" value="arrendatario">
+                    Arrendatario (quiero buscar/rentar vivienda)
+                </label>
+            </div>
+
+            <div class="input-box">
+                <input
+                    type="password"
+                    id="contraseña"
+                    name="contraseña"
+                    placeholder="Contraseña"
+                    required
+                    minlength="8"
+                    pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[\d!@#$%^&*()_+\-={}[\]|:;,.?]).{8,}"
+                    title="Mínimo 8 caracteres: una mayúscula, una minúscula y un número o símbolo.">
+                <i class="bx bx-lock"></i>
+            </div>
+
+            <div class="input-box">
+                <input
+                    type="password"
+                    id="confirmar_contraseña"
+                    name="confirmar_contraseña"
+                    placeholder="Confirmar contraseña"
+                    required>
+                <i class="bx bx-lock"></i>
+            </div>
+
+            <button type="submit" class="btn">Continuar</button>
+
+            <div class="register-link">
+                <p>¿Ya tienes una cuenta? <a href="{{ url_for('login') }}">Inicia sesión</a></p>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const contrasena = document.getElementById("contraseña");
+        const confirmar = document.getElementById("confirmar_contraseña");
+
+        function validarContrasenas() {
+            confirmar.setCustomValidity(
+                contrasena.value !== confirmar.value
+                    ? "Las contraseñas no coinciden."
+                    : ""
+            );
+        }
+
+        contrasena.addEventListener("input", validarContrasenas);
+        confirmar.addEventListener("input", validarContrasenas);
+    </script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const input = document.querySelector("#telefono");
+            window.intlTelInput(input, {
+                separateDialCode: true,
+            });
+        });
+        const telefono = document.getElementById("telefono");
+
+        telefono.addEventListener("input", function () {
+            this.value = this.value.replace(/\D/g, "").slice(0, 10);
+        });
+        const fecha = document.querySelector('input[type="date"]');
+
+        fecha.addEventListener('click', function () {
+            this.showPicker();
+        });
+    </script>
+</body>
+</html>

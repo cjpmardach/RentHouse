@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Eliminar vivienda</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="brand">RentHouse</div>
+    <div class="right">
+      <a href="{{ url_inicio }}">Inicio</a>
+      {% if url_publicar %}
+      <a href="{{ url_publicar }}">Publicar Casa</a>
+      {% endif %}
+      <a href="{{ url_perfil }}">Mi Perfil</a>
+      <div class="user">Sesión iniciada como <strong>{{ nombre }}</strong></div>
+    </div>
+  </div>
+
+  <div class="layout layout-centrado">
+    <div class="content">
+      <a href="{{ url_for('editar_vivienda', cod_vi=vivienda.cod_vi) }}" class="back-link">&larr; Volver a editar</a>
+      <h1>Eliminar vivienda</h1>
+      <p class="subtitle">Esta acción no se puede deshacer.</p>
+
+      <p class="vivienda-descripcion">
+        Vas a eliminar <strong>{{ vivienda.titulo }}</strong> ({{ vivienda.direccion }}, {{ vivienda.ciudad }})
+        junto con sus {{ total_archivos }} foto(s) y video(s), los favoritos de otros usuarios y sus conversaciones.
+      </p>
+
+      <form method="post" class="form-actions">
+        <button type="submit" class="btn btn-danger">Sí, eliminar definitivamente</button>
+        <a href="{{ url_for('editar_vivienda', cod_vi=vivienda.cod_vi) }}" class="btn">Cancelar</a>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RentHouse - Panel de Arrendatario</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.jpeg') }}" type="image/jpeg">
+<link rel="stylesheet" href="{{ url_for('static', filename='renthouse.css') }}">
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="brand">RentHouse</div>
+    <div class="user">Sesión iniciada como <strong>{{ nombre }}</strong></div>
+  </div>
+
+  <div class="layout">
+
+
+    <aside class="sidebar">
+      <div class="greet">
+        <strong>Hola, {{ nombre }}</strong>
+        Panel de arrendatario
+      </div>
+      <nav>
+        <a href="#" data-target="buscar" class="active">🔍 Buscar viviendas</a>
+        <a href="#" data-target="favoritos">❤️ Favoritos</a>
+        <a href="#" data-target="historial">🧾 Historial</a>
+        <a href="#" data-target="notificaciones">🔔 Notificaciones <span class="contador-notif" data-contador-notif="arrendatario"{{ '' if sin_leer else ' hidden' }}>{{ sin_leer }}</span></a>
+        <a href="#" data-target="perfil">👤 Mi perfil</a>
+        <a href="{{ url_for('mensajes') }}">✉️ Mensajes</a>
+        <a href="{{ url_for('logout') }}">🚪Cerrar sesión</a>
+      </nav>
+    </aside>
+
+    <div class="content">
+
+      <section class="screen active" id="buscar">
+        <span class="screen-label">BUSCAR VIVIENDAS</span>
+        <h1>Encuentra tu próxima Vivienda</h1>
+        <p class="subtitle">Explora viviendas disponibles y filtra según tus necesidades.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria == 'solicitud_error' %}
+          <div class="alerta alerta-error">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <form class="search-bar" method="get" action="{{ url_for('menu_arrendatario') }}">
+          <select name="ciudad">
+              <option value="" {{ 'selected' if not ciudad_seleccionada else '' }}>Ciudad</option>
+              {% for c in ciudades %}
+              <option value="{{ c }}" {{ 'selected' if c|lower == ciudad_seleccionada|lower else '' }}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          <select name="huespedes">
+            <option value="" {{ 'selected' if not huespedes_seleccionado else '' }}>Huéspedes</option>
+            <option value="1" {{ 'selected' if huespedes_seleccionado == '1' else '' }}>1</option>
+            <option value="2" {{ 'selected' if huespedes_seleccionado == '2' else '' }}>2</option>
+            <option value="3" {{ 'selected' if huespedes_seleccionado == '3' else '' }}>3</option>
+            <option value="4" {{ 'selected' if huespedes_seleccionado == '4' else '' }}>4</option>
+            <option value="5" {{ 'selected' if huespedes_seleccionado == '5' else '' }}>5+</option>
+          </select>
+          <button type="submit" class="btn btn-primary">Buscar</button>
+        </form>
+
+        <div class="prop-grid">
+          {% for vivienda in viviendas %}
+          <div class="prop-card">
+            <div class="thumb{{ '' if vivienda[4] else ' placeholder-box' }}">
+              {% if vivienda[4] %}
+              <img class="thumb-img" src="{{ url_for('static', filename='uploads/' ~ vivienda[4]) }}" alt="{{ vivienda[1] }}">
+              {% endif %}
+              <form method="post" action="{{ url_for('alternar_favorito', cod_vi=vivienda[0]) }}">
+                <input type="hidden" name="volver" value="{{ request.full_path }}">
+                <input type="hidden" name="ancla" value="buscar">
+                <button type="submit" class="fav-icon{{ ' activo' if vivienda[0] in favoritos_ids else '' }}" title="Favoritos">{{ '♥' if vivienda[0] in favoritos_ids else '♡' }}</button>
+              </form>
+            </div>
+            <div class="info">
+              <div class="title">{{ vivienda[1] }}</div>
+              <div class="addr">{{ vivienda[2] }}</div>
+              <div class="price">{{ vivienda[3]|cop }} / mes</div>
+              <a href="{{ url_for('ver_vivienda', cod_vi=vivienda[0]) }}" class="btn btn-block">Ver vivienda</a>
+            </div>
+          </div>
+          {% else %}
+          <p style="grid-column: 1 / -1;">No hay viviendas disponibles{{ ' en ' + ciudad_seleccionada if ciudad_seleccionada else '' }}{{ ' para ' + huespedes_seleccionado + ' huéspedes' if huespedes_seleccionado else '' }}.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+   
+      <section class="screen" id="favoritos">
+        <span class="screen-label"> FAVORITOS</span>
+        <h1>Viviendas favoritas</h1>
+        <p class="subtitle">Las propiedades que has guardado para más tarde.</p>
+        <div class="prop-grid">
+          {% for vivienda in favoritos %}
+          <div class="prop-card">
+            <div class="thumb{{ '' if vivienda[4] else ' placeholder-box' }}">
+              {% if vivienda[4] %}
+              <img class="thumb-img" src="{{ url_for('static', filename='uploads/' ~ vivienda[4]) }}" alt="{{ vivienda[1] }}">
+              {% endif %}
+              <form method="post" action="{{ url_for('alternar_favorito', cod_vi=vivienda[0]) }}">
+                <input type="hidden" name="volver" value="{{ request.full_path }}">
+                <input type="hidden" name="ancla" value="favoritos">
+                <button type="submit" class="fav-icon activo" title="Quitar de favoritos">♥</button>
+              </form>
+            </div>
+            <div class="info">
+              <div class="title">{{ vivienda[1] }}</div>
+              <div class="addr">{{ vivienda[2] }}</div>
+              <div class="price">{{ vivienda[3]|cop }} / mes</div>
+              <a href="{{ url_for('ver_vivienda', cod_vi=vivienda[0]) }}" class="btn btn-block">Ver vivienda</a>
+            </div>
+          </div>
+          {% else %}
+          <p style="grid-column: 1 / -1; color:var(--text-muted); font-size:14px;">Todavía no has guardado ninguna vivienda en favoritos.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="screen" id="historial">
+        <span class="screen-label">HISTORIAL</span>
+        <h1>Historial</h1>
+        <p class="subtitle">Tus alquileres, los pagos que tu arrendador ha registrado y tus reseñas.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['resena_ok', 'resena_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'resena_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <h2 class="historial-titulo">Mis alquileres</h2>
+        <div class="tabla-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Vivienda</th>
+              <th>Arrendador</th>
+              <th>Periodo</th>
+              <th>Alquiler</th>
+              <th>Pago</th>
+              <th>Reseña</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in mis_alquileres %}
+            <tr>
+              <td>{{ a.titulo }}</td>
+              <td>{{ a.arrendador }}</td>
+              <td>{{ a.fecha_inicio.strftime('%d/%m/%Y') if a.fecha_inicio else '?' }} al {{ a.fecha_fin.strftime('%d/%m/%Y') if a.fecha_fin else 'sin fecha de fin' }}</td>
+              <td><span class="status {{ 'active' if a.estado_alquiler == 'Activo' else 'pending' }}">{{ a.estado_alquiler }}</span></td>
+              <td><span class="status {{ 'active' if a.estado_pago == 'Pagado' else 'pending' }}">{{ a.estado_pago }}</span></td>
+              <td>{{ 'Enviada' if a.ya_resenado else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" style="text-align:center; color:var(--text-muted);">Todavía no tienes alquileres registrados.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+
+        <h2 class="historial-titulo">Historial de pagos</h2>
+        <div class="tabla-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Vivienda</th>
+              <th>Fecha</th>
+              <th>Monto</th>
+              <th>Método</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in mis_pagos %}
+            <tr>
+              <td>{{ p.titulo }}</td>
+              <td>{{ p.fecha_pago.strftime('%d/%m/%Y') }}</td>
+              <td>{{ p.monto|cop }}</td>
+              <td>{{ p.metodo_pago }}</td>
+              <td><span class="status {{ 'active' if p.estado == 'Pagado' else 'pending' }}">{{ p.estado }}</span></td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" style="text-align:center; color:var(--text-muted);">Todavía no tienes pagos registrados.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+
+        <h2 class="historial-titulo">Calificar a un arrendador</h2>
+        {% set por_calificar = mis_alquileres | selectattr('puede_resenar') | list %}
+        {% if por_calificar %}
+        <form class="form-grid" action="{{ url_for('crear_resena') }}" method="post">
+          <input type="hidden" name="como" value="arrendatario">
+          <div class="full">
+            <label>Alquiler</label>
+            <select name="cod_ar" required>
+              <option value="" disabled selected>Selecciona vivienda y arrendador</option>
+              {% for a in por_calificar %}
+              <option value="{{ a.cod_ar }}">{{ a.titulo }} / {{ a.arrendador }} ({{ a.estado_alquiler }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Calificación</label>
+            <select name="calificacion" required>
+              <option value="" disabled selected>Selecciona una calificación</option>
+              <option value="5">5 - Excelente</option>
+              <option value="4">4 - Muy bueno</option>
+              <option value="3">3 - Bueno</option>
+              <option value="2">2 - Regular</option>
+              <option value="1">1 - Malo</option>
+            </select>
+          </div>
+          <div class="full">
+            <label>Comentario</label>
+            <textarea name="comentario" placeholder="Cuenta cómo fue tu experiencia con este arrendador..." maxlength="1000"></textarea>
+          </div>
+          <div class="full form-actions">
+            <button type="submit" class="btn btn-primary">Enviar reseña</button>
+          </div>
+        </form>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:14px;">No tienes alquileres pendientes por calificar. Podrás calificar cuando un alquiler haya iniciado.</p>
+        {% endif %}
+
+        <h2 class="historial-titulo">Reseñas que me dejaron mis arrendadores</h2>
+        {% for r in resenas_recibidas %}
+        <div class="resena-item">
+          <div class="resena-cabecera">
+            <span><strong>{{ r.autor }}</strong> &middot; {{ r.titulo }}</span>
+            <span class="resena-estrellas">{{ '★' * (r.calificacion or 0) }}{{ '☆' * (5 - (r.calificacion or 0)) }}</span>
+          </div>
+          {% if r.comentario %}<p class="resena-texto">{{ r.comentario }}</p>{% endif %}
+          <div class="resena-meta">{{ r.fecha.strftime('%d/%m/%Y') if r.fecha else '' }}</div>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:14px;">Todavía no has recibido reseñas.</p>
+        {% endfor %}
+      </section>
+
+      
+      <section class="screen" id="notificaciones">
+        <span class="screen-label">NOTIFICACIONES</span>
+        <h1>Notificaciones</h1>
+        <p class="subtitle">Alertas y actualizaciones de tus reservas.</p>
+        {% if sin_leer %}
+        <form method="post" action="{{ url_for('leer_notificaciones') }}" class="notif-acciones">
+          <input type="hidden" name="volver" value="{{ request.full_path }}">
+          <input type="hidden" name="ancla" value="notificaciones">
+          <input type="hidden" name="rol" value="arrendatario">
+          <button type="submit" class="btn btn-sm">Marcar todas como leídas ({{ sin_leer }})</button>
+        </form>
+        {% endif %}
+
+        {% for n in notificaciones %}
+        <div class="notif-item{{ '' if n.leida else ' notif-nueva' }}">
+          <div class="notif-icon">🔔</div>
+          <div class="notif-texto">
+            <div>{{ n.mensaje }}</div>
+            <div class="time">{{ n.fecha.strftime('%d/%m/%Y %H:%M') }}</div>
+          </div>
+          {% if n.enlace %}
+          <a href="{{ url_for('abrir_notificacion', cod_not=n.cod_not) }}" class="btn btn-sm">Ver</a>
+          {% endif %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:14px;">No tienes notificaciones.</p>
+        {% endfor %}
+      </section>
+
+    
+      <section class="screen" id="perfil">
+        <span class="screen-label"> MI PERFIL</span>
+        <h1>Mi perfil</h1>
+        <p class="subtitle">Edita tus datos personales y método de pago.</p>
+
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+          {% for categoria, texto in mensajes if categoria in ['perfil_ok', 'perfil_error'] %}
+          <div class="alerta alerta-{{ 'ok' if categoria == 'perfil_ok' else 'error' }}">{{ texto }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div class="profile-layout">
+          <div class="avatar-box placeholder-box"></div>
+          <form class="profile-fields" action="{{ url_for('actualizar_perfil') }}" method="post">
+            <input type="hidden" name="destino" value="arrendatario">
+            <div>
+              <label>Nombre completo</label>
+              <input type="text" name="nombre" value="{{ perfil.nombre }}" maxlength="100" required>
+            </div>
+            <div>
+              <label>Correo electrónico</label>
+              <input type="email" name="correo" value="{{ perfil.correo }}" maxlength="120" required>
+            </div>
+            <div>
+              <label>Teléfono</label>
+              <input type="text" name="telefono" value="{{ perfil.telefono }}" placeholder="+57 300 000 0000" maxlength="25" required>
+            </div>
+            <div>
+              <label>Ciudad</label>
+              <input type="text" name="ciudad" value="{{ perfil.ciudad }}" maxlength="100" required>
+            </div>
+            <div>
+              <label>Identificación (no editable)</label>
+              <input type="text" value="{{ perfil.tipo_identificacion }} {{ perfil.identificacion }}" readonly>
+            </div>
+            <div>
+              <label>Fecha de nacimiento (no editable)</label>
+              <input type="text" value="{{ perfil.fecha_nacimiento }}" readonly>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Guardar cambios</button>
+              <a href="#cambiar-password" class="btn">Cambiar contraseña</a>
+            </div>
+          </form>
+        </div>
+
+
+        <div class="password-box" id="cambiar-password">
+          <h2>Cambiar contraseña</h2>
+          <p class="subtitle">Si entraste con una contraseña temporal, cámbiala aquí por una propia.</p>
+
+          {% with mensajes = get_flashed_messages(with_categories=true) %}
+            {% for categoria, texto in mensajes if categoria in ['ok', 'error'] %}
+            <div class="alerta alerta-{{ categoria }}">{{ texto }}</div>
+            {% endfor %}
+          {% endwith %}
+
+          <form action="{{ url_for('cambiar_password') }}" method="post" class="profile-fields">
+            <input type="hidden" name="destino" value="arrendatario">
+            <div>
+              <label>Contraseña actual</label>
+              <input type="password" name="password_actual" required>
+            </div>
+            <div>
+              <label>Contraseña nueva</label>
+              <input type="password" name="password_nueva" required minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[\d!@#$%^&*()_+\-={}[\]|:;,.?]).{8,}" title="Mínimo 8 caracteres: una mayúscula, una minúscula y un número o símbolo.">
+            </div>
+            <div>
+              <label>Confirmar contraseña nueva</label>
+              <input type="password" name="password_confirmar" required>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Guardar contraseña</button>
+            </div>
+          </form>
+        </div>
+
+        {% if 'arrendador' not in session.get('roles', []) %}
+        <div class="password-box" id="habilitar-rol">
+          <h2>Habilitar rol de arrendador</h2>
+          <p class="subtitle">Activa también el rol de arrendador en esta misma cuenta para publicar viviendas, asociar arrendatarios, registrar pagos y calificar. No pierdes ninguna información.</p>
+
+          {% with mensajes = get_flashed_messages(with_categories=true) %}
+            {% for categoria, texto in mensajes if categoria == 'rol_error' %}
+            <div class="alerta alerta-error">{{ texto }}</div>
+            {% endfor %}
+          {% endwith %}
+
+          <form action="{{ url_for('habilitar_rol') }}" method="post" class="profile-fields" onsubmit="return confirm('¿Habilitar el rol de arrendador en tu cuenta?');">
+            <input type="hidden" name="rol" value="arrendador">
+            <div>
+              <label>Confirma tu contraseña</label>
+              <input type="password" name="password_actual" required>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Habilitar rol de arrendador</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('[data-target]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = link.dataset.target;
+
+        document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+        const sidebarMatch = document.querySelector('.sidebar nav a[data-target="' + targetId + '"]');
+        if (sidebarMatch) sidebarMatch.classList.add('active');
+
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(targetId).classList.add('active');
+        window.scrollTo(0,0);
+      });
+    });
+
+    const pantallaInicial = location.hash.slice(1);
+    if (pantallaInicial) {
+      const enlace = document.querySelector('.sidebar nav a[data-target="' + pantallaInicial + '"]');
+      if (enlace) enlace.click();
+    }
+
+    function actualizarContador() {
+      
+      fetch("{{ url_for('contador_notificaciones') }}")
+        .then(respuesta => respuesta.ok ? respuesta.json() : null)
+        .then(datos => {
+          if (!datos) return;
+          document.querySelectorAll('[data-contador-notif]').forEach(circulo => {
+            const total = datos[circulo.dataset.contadorNotif];
+            if (total === undefined) return;
+            circulo.textContent = total;
+            circulo.hidden = total === 0;
+          });
+        })
+        .catch(() => {});
+    }
+    setInterval(actualizarContador, 10000);
+  </script>
+
+</body>
+</html>
