@@ -5,6 +5,9 @@ import psycopg2
 import smtplib
 import random
 import string
+import functools
+import hashlib
+import secrets
 import os
 import re
 import time
@@ -12,13 +15,11 @@ import threading
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from werkzeug.utils import secure_filename
-from werkzeug.middleware.proxy_fix import ProxyFix
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from psycopg2 import sql
 
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = "cambia-esto-por-una-clave-secreta-segura"
 
 CARPETA_FOTOS = os.path.join('static', 'uploads')
@@ -32,6 +33,10 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 METODOS_PAGO = ['Efectivo', 'Transferencia', 'Nequi', 'Daviplata', 'Tarjeta', 'Otro']
 ESTADOS_PAGO = ['Pagado', 'Pendiente']
+
+TOKEN_RECUPERACION_MINUTOS = 30
+LOGIN_MAX_INTENTOS = 5
+LOGIN_VENTANA_SEGUNDOS = 300
 
 
 def extension_valida(nombre_archivo):
@@ -721,8 +726,108 @@ def asegurar_tabla_solicitud():
     desconectar(conexion)
 
 
+def asegurar_tabla_recuperacion():
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recuperacion_password (
+            cod_rec SERIAL PRIMARY KEY,
+            cod_usu INTEGER NOT NULL REFERENCES usuario(cod_usu) ON DELETE CASCADE,
+            token_hash VARCHAR(64) NOT NULL UNIQUE,
+            expira TIMESTAMP NOT NULL,
+            usado BOOLEAN NOT NULL DEFAULT FALSE
+        )
+        """
+    )
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+
+def asegurar_rol_admin():
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'rol_usuario_rol_check'")
+    fila = cursor.fetchone()
+    if fila is None or 'admin' not in fila[0]:
+        cursor.execute("ALTER TABLE rol_usuario DROP CONSTRAINT IF EXISTS rol_usuario_rol_check")
+        cursor.execute(
+            "ALTER TABLE rol_usuario ADD CONSTRAINT rol_usuario_rol_check "
+            "CHECK (rol IN ('arrendador', 'arrendatario', 'admin'))"
+        )
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+
+def asegurar_tabla_admin_log():
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_log (
+            cod_log SERIAL PRIMARY KEY,
+            cod_admin INTEGER NOT NULL REFERENCES usuario(cod_usu) ON DELETE CASCADE,
+            accion VARCHAR(60) NOT NULL,
+            detalle VARCHAR(255),
+            fecha TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+
+cuentas_inactivas = set()
+
+
+def cargar_cuentas_inactivas():
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT cod_usu FROM usuario WHERE estado_cuenta = 'inactivo'")
+    cuentas_inactivas.update(f[0] for f in cursor.fetchall())
+    cursor.close()
+    desconectar(conexion)
+
+
 asegurar_tabla_notificacion()
 asegurar_tabla_solicitud()
+asegurar_tabla_recuperacion()
+asegurar_rol_admin()
+asegurar_tabla_admin_log()
+cargar_cuentas_inactivas()
+
+
+@app.before_request
+def bloquear_cuentas_inactivas():
+    if request.endpoint != 'static' and session.get('usuario_id') in cuentas_inactivas:
+        session.clear()
+        return redirect(url_for('login'))
+
+intentos_login = {}
+bloqueo_intentos = threading.Lock()
+
+
+def segundos_de_bloqueo(clave):
+    ahora = time.monotonic()
+    with bloqueo_intentos:
+        vigentes = [t for t in intentos_login.get(clave, []) if ahora - t < LOGIN_VENTANA_SEGUNDOS]
+        intentos_login[clave] = vigentes
+        if len(vigentes) < LOGIN_MAX_INTENTOS:
+            return 0
+        return int(LOGIN_VENTANA_SEGUNDOS - (ahora - vigentes[0])) + 1
+
+
+def registrar_intento_fallido(clave):
+    with bloqueo_intentos:
+        intentos_login.setdefault(clave, []).append(time.monotonic())
+
+
+def limpiar_intentos_login(clave):
+    with bloqueo_intentos:
+        intentos_login.pop(clave, None)
 
 
 @app.errorhandler(413)
@@ -747,6 +852,15 @@ def login():
         usuario = request.form['usuario']
         contraseña = request.form['contraseña']
 
+        clave_intentos = (request.remote_addr, usuario.strip().lower())
+        espera = segundos_de_bloqueo(clave_intentos)
+        if espera:
+            minutos = (espera + 59) // 60
+            return render_template(
+                "index.html",
+                error=f"Demasiados intentos fallidos. Intenta de nuevo en {minutos} minuto(s) o recupera tu contraseña."
+            )
+
         conexion = conectar()
         cursor = conexion.cursor()
         cursor.execute(
@@ -758,6 +872,7 @@ def login():
         if resultado is None or not bcrypt.checkpw(contraseña.encode(), resultado[6].encode()):
             cursor.close()
             desconectar(conexion)
+            registrar_intento_fallido(clave_intentos)
             return render_template("index.html", error="Usuario o contraseña incorrectos")
 
         if resultado[7] == 'inactivo':
@@ -766,6 +881,7 @@ def login():
             return render_template("index.html", error="Esta cuenta está inactiva")
 
         cod_usu = resultado[0]
+        limpiar_intentos_login(clave_intentos)
 
         cursor.execute(
             "SELECT rol FROM rol_usuario WHERE cod_usu = %s",
@@ -779,8 +895,8 @@ def login():
         session['nombre'] = resultado[1]
         session['roles'] = roles
 
-        if 'administrador' in roles:
-            session['rol_activo'] = 'administrador'
+        if 'admin' in roles:
+            session['rol_activo'] = 'admin'
             return redirect(url_for('menu_admin'))
 
         if 'arrendador' in roles and 'arrendatario' in roles:
@@ -985,8 +1101,9 @@ def menu_arrendatario():
 
 
 def rutas_de_inicio(roles):
-    if 'administrador' in roles:
-        return url_for('menu_admin'), None, url_for('menu_admin') + '#cuenta'
+    if 'admin' in roles:
+        base = url_for('menu_admin')
+        return base, None, base + '#cuenta'
     if 'arrendador' in roles and 'arrendatario' in roles:
         base = url_for('menu_completo')
         return base, base + '#ar-publicar', base + '#at-perfil'
@@ -999,13 +1116,12 @@ def rutas_de_inicio(roles):
 
 @app.route('/vivienda/<int:cod_vi>')
 def ver_vivienda(cod_vi):
-    usuario_id = session.get('usuario_id')
-    es_publico = usuario_id is None
+    if 'usuario_id' not in session:
+        return redirect(url_for('login'))
+
+    usuario_id = session['usuario_id']
     roles = session.get('roles', [])
-    if es_publico:
-        url_inicio, url_publicar, url_perfil = url_for('inicio'), None, None
-    else:
-        url_inicio, url_publicar, url_perfil = rutas_de_inicio(roles)
+    url_inicio, url_publicar, url_perfil = rutas_de_inicio(roles)
 
     conexion = conectar()
     cursor = conexion.cursor()
@@ -1017,14 +1133,13 @@ def ver_vivienda(cod_vi):
     if fila is not None:
         cursor.execute("SELECT " + ESTADO_VISIBLE_SQL + " FROM vivienda v WHERE v.cod_vi = %s", (cod_vi,))
         estado_visible = cursor.fetchone()[0]
-        if not es_publico:
-            cursor.execute(
-                "SELECT 1 FROM arriendo WHERE cod1_usu = %s AND cod1_vivienda = %s LIMIT 1",
-                (usuario_id, cod_vi)
-            )
-            es_arrendatario_de_ella = cursor.fetchone() is not None
+        cursor.execute(
+            "SELECT 1 FROM arriendo WHERE cod1_usu = %s AND cod1_vivienda = %s LIMIT 1",
+            (usuario_id, cod_vi)
+        )
+        es_arrendatario_de_ella = cursor.fetchone() is not None
 
-    if fila is None or (estado_visible != 'disponible' and fila[9] != usuario_id and not es_arrendatario_de_ella and 'administrador' not in roles):
+    if fila is None or (estado_visible != 'disponible' and fila[9] != usuario_id and not es_arrendatario_de_ella and 'admin' not in roles):
         cursor.close()
         desconectar(conexion)
         return redirect(url_inicio)
@@ -1032,20 +1147,17 @@ def ver_vivienda(cod_vi):
     cursor.execute("SELECT nombre FROM usuario WHERE cod_usu = %s", (fila[9],))
     fila_dueno = cursor.fetchone()
 
-    es_favorito = False
-    solicitud_pendiente = False
-    if not es_publico:
-        cursor.execute(
-            "SELECT 1 FROM favorito WHERE cod1_usu = %s AND cod1_vivienda = %s",
-            (usuario_id, cod_vi)
-        )
-        es_favorito = cursor.fetchone() is not None
+    cursor.execute(
+        "SELECT 1 FROM favorito WHERE cod1_usu = %s AND cod1_vivienda = %s",
+        (usuario_id, cod_vi)
+    )
+    es_favorito = cursor.fetchone() is not None
 
-        cursor.execute(
-            "SELECT 1 FROM solicitud_alquiler WHERE cod1_usu = %s AND cod1_vivienda = %s AND estado = 'pendiente'",
-            (usuario_id, cod_vi)
-        )
-        solicitud_pendiente = cursor.fetchone() is not None
+    cursor.execute(
+        "SELECT 1 FROM solicitud_alquiler WHERE cod1_usu = %s AND cod1_vivienda = %s AND estado = 'pendiente'",
+        (usuario_id, cod_vi)
+    )
+    solicitud_pendiente = cursor.fetchone() is not None
 
     cursor.execute(
         "SELECT url FROM foto_vivienda WHERE cod1_vivienda = %s ORDER BY cod_foto",
@@ -1071,8 +1183,7 @@ def ver_vivienda(cod_vi):
 
     return render_template(
         'ver_vivienda.html',
-        nombre=session.get('nombre'),
-        es_publico=es_publico,
+        nombre=session['nombre'],
         vivienda=vivienda,
         nombre_dueno=fila_dueno[0] if fila_dueno else 'Arrendador',
         imagenes=imagenes,
@@ -2250,6 +2361,392 @@ def eliminar_vivienda(cod_vi):
     )
 
 
+NOMBRES_MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+
+def admin_requerido(vista):
+    @functools.wraps(vista)
+    def envoltura(*args, **kwargs):
+        if 'usuario_id' not in session or 'admin' not in session.get('roles', []):
+            return redirect(url_for('login'))
+        return vista(*args, **kwargs)
+    return envoltura
+
+
+def registrar_accion_admin(cursor, cod_admin, accion, detalle=''):
+    cursor.execute(
+        "INSERT INTO admin_log (cod_admin, accion, detalle) VALUES (%s, %s, %s)",
+        (cod_admin, accion[:60], detalle[:255])
+    )
+
+
+def obtener_resumen_admin(cursor):
+    sin_admin = "NOT EXISTS (SELECT 1 FROM rol_usuario ra WHERE ra.cod_usu = u.cod_usu AND ra.rol = 'admin')"
+    cursor.execute(
+        "SELECT COUNT(*) FILTER (WHERE COALESCE(u.estado_cuenta, 'activo') <> 'inactivo'), "
+        "COUNT(*) FILTER (WHERE u.estado_cuenta = 'inactivo') FROM usuario u WHERE " + sin_admin
+    )
+    f = cursor.fetchone()
+    resumen = {'usuarios_activos': f[0], 'usuarios_inactivos': f[1]}
+
+    cursor.execute(
+        "SELECT rol, COUNT(*) FROM rol_usuario WHERE rol IN ('arrendador', 'arrendatario') GROUP BY rol"
+    )
+    por_rol = dict(cursor.fetchall())
+    resumen['arrendadores'] = por_rol.get('arrendador', 0)
+    resumen['arrendatarios'] = por_rol.get('arrendatario', 0)
+    cursor.execute(
+        "SELECT COUNT(*) FROM (SELECT cod_usu FROM rol_usuario "
+        "WHERE rol IN ('arrendador', 'arrendatario') GROUP BY cod_usu HAVING COUNT(*) = 2) t"
+    )
+    resumen['ambos'] = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE " + DISPONIBLE_SQL + "), "
+        "COUNT(*) FILTER (WHERE v.estado = 'disponible' AND " + OCUPADA_SQL + "), "
+        "COUNT(*) FILTER (WHERE v.estado <> 'disponible') FROM vivienda v"
+    )
+    f = cursor.fetchone()
+    resumen.update({'viviendas': f[0], 'viviendas_disponibles': f[1], 'viviendas_alquiladas': f[2], 'viviendas_ocultas': f[3]})
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM arriendo WHERE fecha_inicio <= CURRENT_DATE AND (fecha_fin IS NULL OR fecha_fin > CURRENT_DATE)"
+    )
+    resumen['alquileres_activos'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM solicitud_alquiler WHERE estado = 'pendiente'")
+    resumen['solicitudes_pendientes'] = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT COALESCE(SUM(monto) FILTER (WHERE estado = 'Pagado'), 0), COUNT(*) FILTER (WHERE estado = 'Pendiente') "
+        "FROM pago WHERE date_trunc('month', fecha_pago) = date_trunc('month', CURRENT_DATE)"
+    )
+    f = cursor.fetchone()
+    resumen['pagos_mes'] = f[0]
+    resumen['pagos_pendientes_mes'] = f[1]
+
+    tabla = tabla_resena(cursor)
+    cursor.execute(sql.SQL("SELECT COUNT(*), AVG(calificacion) FROM {}").format(tabla))
+    f = cursor.fetchone()
+    resumen['resenas'] = f[0]
+    resumen['promedio_resenas'] = round(float(f[1]), 1) if f[1] is not None else None
+
+    cursor.execute(
+        "SELECT to_char(date_trunc('month', fecha_pago), 'YYYY-MM'), COALESCE(SUM(monto), 0) FROM pago "
+        "WHERE estado = 'Pagado' AND fecha_pago >= date_trunc('month', CURRENT_DATE) - INTERVAL '5 months' "
+        "GROUP BY 1 ORDER BY 1"
+    )
+    por_mes = {m: float(t) for m, t in cursor.fetchall()}
+    hoy = date.today()
+    anio, mes = hoy.year, hoy.month
+    meses = []
+    for _ in range(6):
+        meses.append((anio, mes))
+        mes -= 1
+        if mes == 0:
+            mes, anio = 12, anio - 1
+    meses.reverse()
+    maximo = max([por_mes.get(f'{a}-{m:02d}', 0) for a, m in meses] + [0])
+    resumen['barras'] = [
+        {
+            'etiqueta': f'{NOMBRES_MES[m - 1]} {a}',
+            'total': por_mes.get(f'{a}-{m:02d}', 0),
+            'pct': round(100 * por_mes.get(f'{a}-{m:02d}', 0) / maximo) if maximo else 0
+        }
+        for a, m in meses
+    ]
+    return resumen
+
+
+def obtener_usuarios_admin(cursor):
+    cursor.execute(
+        """
+        SELECT u.cod_usu, u.nombre, u.correo, u.ciudad, COALESCE(u.estado_cuenta, 'activo'),
+               COALESCE(string_agg(r.rol, ',' ORDER BY r.rol), '')
+        FROM usuario u
+        LEFT JOIN rol_usuario r ON r.cod_usu = u.cod_usu
+        GROUP BY u.cod_usu
+        ORDER BY u.cod_usu DESC
+        LIMIT 500
+        """
+    )
+    usuarios = []
+    for f in cursor.fetchall():
+        roles = [x for x in f[5].split(',') if x]
+        usuarios.append({
+            'cod_usu': f[0], 'nombre': f[1], 'correo': f[2], 'ciudad': f[3],
+            'estado': f[4], 'roles': roles, 'es_admin': 'admin' in roles
+        })
+    return usuarios
+
+
+def obtener_viviendas_admin(cursor):
+    cursor.execute(
+        "SELECT v.cod_vi, v.titulo, v.ciudad, v.precio, u.nombre, v.estado, " + ESTADO_VISIBLE_SQL + " "
+        "FROM vivienda v JOIN usuario u ON u.cod_usu = v.cod1_usu ORDER BY v.cod_vi DESC LIMIT 500"
+    )
+    return [
+        {'cod_vi': f[0], 'titulo': f[1], 'ciudad': f[2], 'precio': f[3], 'dueno': f[4],
+         'estado_real': f[5], 'estado': f[6]}
+        for f in cursor.fetchall()
+    ]
+
+
+def obtener_alquileres_admin(cursor):
+    cursor.execute(
+        """
+        SELECT a.cod_ar, v.titulo, d.nombre, t.nombre, a.fecha_inicio, a.fecha_fin, a.estado_de_pago,
+               (SELECT COUNT(*) FROM pago p WHERE p.cod1_ar = a.cod_ar)
+        FROM arriendo a
+        JOIN vivienda v ON v.cod_vi = a.cod1_vivienda
+        JOIN usuario d ON d.cod_usu = v.cod1_usu
+        JOIN usuario t ON t.cod_usu = a.cod1_usu
+        ORDER BY a.cod_ar DESC
+        LIMIT 500
+        """
+    )
+    return [
+        {'cod_ar': f[0], 'titulo': f[1], 'arrendador': f[2], 'arrendatario': f[3],
+         'fecha_inicio': f[4], 'fecha_fin': f[5], 'estado_alquiler': estado_alquiler(f[4], f[5]),
+         'estado_pago': f[6], 'pagos': f[7]}
+        for f in cursor.fetchall()
+    ]
+
+
+def obtener_pagos_admin(cursor):
+    cursor.execute(
+        """
+        SELECT p.cod_pag, v.titulo, t.nombre, p.fecha_pago, p.monto, p.metodo_pago, p.estado
+        FROM pago p
+        JOIN arriendo a ON a.cod_ar = p.cod1_ar
+        JOIN vivienda v ON v.cod_vi = a.cod1_vivienda
+        JOIN usuario t ON t.cod_usu = a.cod1_usu
+        ORDER BY p.fecha_pago DESC, p.cod_pag DESC
+        LIMIT 200
+        """
+    )
+    return [
+        {'cod_pag': f[0], 'titulo': f[1], 'arrendatario': f[2], 'fecha_pago': f[3],
+         'monto': f[4], 'metodo_pago': f[5], 'estado': f[6]}
+        for f in cursor.fetchall()
+    ]
+
+
+def obtener_resenas_admin(cursor):
+    tabla = tabla_resena(cursor)
+    cursor.execute(
+        sql.SQL(
+            "SELECT r.cod_re, u.nombre, v.titulo, r.calificacion, r.comentario, r.fecha "
+            "FROM {} r JOIN usuario u ON u.cod_usu = r.cod1_usu "
+            "LEFT JOIN vivienda v ON v.cod_vi = r.cod1_vivienda "
+            "ORDER BY r.cod_re DESC LIMIT 300"
+        ).format(tabla)
+    )
+    return [
+        {'cod_re': f[0], 'autor': f[1], 'titulo': f[2], 'calificacion': f[3], 'comentario': f[4], 'fecha': f[5]}
+        for f in cursor.fetchall()
+    ]
+
+
+def obtener_actividad_admin(cursor):
+    cursor.execute(
+        "SELECT l.fecha, u.nombre, l.accion, l.detalle FROM admin_log l "
+        "JOIN usuario u ON u.cod_usu = l.cod_admin ORDER BY l.cod_log DESC LIMIT 50"
+    )
+    return [{'fecha': f[0], 'admin': f[1], 'accion': f[2], 'detalle': f[3]} for f in cursor.fetchall()]
+
+
+@app.route('/admin')
+@admin_requerido
+def menu_admin():
+    conexion = conectar()
+    cursor = conexion.cursor()
+    resumen = obtener_resumen_admin(cursor)
+    usuarios = obtener_usuarios_admin(cursor)
+    viviendas = obtener_viviendas_admin(cursor)
+    alquileres = obtener_alquileres_admin(cursor)
+    pagos = obtener_pagos_admin(cursor)
+    resenas = obtener_resenas_admin(cursor)
+    actividad = obtener_actividad_admin(cursor)
+    cursor.close()
+    desconectar(conexion)
+
+    return render_template(
+        'admin/menu.html',
+        nombre=session['nombre'],
+        yo=session['usuario_id'],
+        resumen=resumen,
+        usuarios=usuarios,
+        viviendas=viviendas,
+        alquileres=alquileres,
+        pagos=pagos,
+        resenas=resenas,
+        actividad=actividad
+    )
+
+
+@app.route('/admin/usuario/<int:cod_usu>/estado', methods=['POST'])
+@admin_requerido
+def admin_cambiar_estado_usuario(cod_usu):
+    volver = url_for('menu_admin') + '#usuarios'
+    if cod_usu == session['usuario_id']:
+        flash('No puedes desactivar tu propia cuenta.', 'admin_error')
+        return redirect(volver)
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT nombre, COALESCE(estado_cuenta, 'activo') FROM usuario WHERE cod_usu = %s", (cod_usu,))
+    fila = cursor.fetchone()
+    if fila is None or 'admin' in obtener_roles_usuario(cursor, cod_usu):
+        cursor.close()
+        desconectar(conexion)
+        flash('No se puede cambiar el estado de esa cuenta.', 'admin_error')
+        return redirect(volver)
+
+    nuevo = 'activo' if fila[1] == 'inactivo' else 'inactivo'
+    cursor.execute("UPDATE usuario SET estado_cuenta = %s WHERE cod_usu = %s", (nuevo, cod_usu))
+    registrar_accion_admin(cursor, session['usuario_id'], 'Usuario ' + ('reactivado' if nuevo == 'activo' else 'desactivado'), f'{fila[0]} (código {cod_usu})')
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+    if nuevo == 'inactivo':
+        cuentas_inactivas.add(cod_usu)
+    else:
+        cuentas_inactivas.discard(cod_usu)
+
+    flash(f'La cuenta de {fila[0]} quedó {nuevo}.', 'admin_ok')
+    return redirect(volver)
+
+
+@app.route('/admin/vivienda/<int:cod_vi>/estado', methods=['POST'])
+@admin_requerido
+def admin_cambiar_estado_vivienda(cod_vi):
+    volver = url_for('menu_admin') + '#viviendas'
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT titulo, estado, cod1_usu FROM vivienda WHERE cod_vi = %s", (cod_vi,))
+    fila = cursor.fetchone()
+    if fila is None:
+        cursor.close()
+        desconectar(conexion)
+        flash('Esa vivienda ya no existe.', 'admin_error')
+        return redirect(volver)
+
+    nuevo = 'no disponible' if fila[1] == 'disponible' else 'disponible'
+    cursor.execute("UPDATE vivienda SET estado = %s WHERE cod_vi = %s", (nuevo, cod_vi))
+    accion = 'ocultó' if nuevo == 'no disponible' else 'volvió a publicar'
+    crear_notificacion(
+        cursor, fila[2], f'Un administrador {accion} tu vivienda "{fila[0]}".',
+        url_for('ver_vivienda', cod_vi=cod_vi), False, 'arrendador'
+    )
+    registrar_accion_admin(cursor, session['usuario_id'], 'Vivienda ' + ('oculta' if nuevo == 'no disponible' else 'publicada'), f'{fila[0]} (código {cod_vi})')
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+    flash(f'La vivienda "{fila[0]}" quedó como {nuevo}.', 'admin_ok')
+    return redirect(volver)
+
+
+@app.route('/admin/vivienda/<int:cod_vi>/eliminar', methods=['POST'])
+@admin_requerido
+def admin_eliminar_vivienda(cod_vi):
+    volver = url_for('menu_admin') + '#viviendas'
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute("SELECT titulo, cod1_usu FROM vivienda WHERE cod_vi = %s", (cod_vi,))
+    fila = cursor.fetchone()
+    if fila is None:
+        cursor.close()
+        desconectar(conexion)
+        flash('Esa vivienda ya no existe.', 'admin_error')
+        return redirect(volver)
+
+    cursor.execute("SELECT url FROM foto_vivienda WHERE cod1_vivienda = %s", (cod_vi,))
+    urls = [f[0] for f in cursor.fetchall()]
+    try:
+        cursor.execute("DELETE FROM foto_vivienda WHERE cod1_vivienda = %s", (cod_vi,))
+        cursor.execute("DELETE FROM favorito WHERE cod1_vivienda = %s", (cod_vi,))
+        cursor.execute("DELETE FROM mensaje WHERE cod_vi = %s", (cod_vi,))
+        cursor.execute("DELETE FROM vivienda WHERE cod_vi = %s", (cod_vi,))
+        crear_notificacion(cursor, fila[1], f'Un administrador eliminó tu vivienda "{fila[0]}".', None, False, 'arrendador')
+        registrar_accion_admin(cursor, session['usuario_id'], 'Vivienda eliminada', f'{fila[0]} (código {cod_vi})')
+        conexion.commit()
+    except psycopg2.errors.ForeignKeyViolation:
+        conexion.rollback()
+        cursor.close()
+        desconectar(conexion)
+        flash('No se puede eliminar: tiene alquileres, reseñas o reportes asociados. Puedes ocultarla.', 'admin_error')
+        return redirect(volver)
+
+    cursor.close()
+    desconectar(conexion)
+    borrar_archivos(urls)
+
+    flash(f'La vivienda "{fila[0]}" fue eliminada.', 'admin_ok')
+    return redirect(volver)
+
+
+@app.route('/admin/resena/<int:cod_re>/eliminar', methods=['POST'])
+@admin_requerido
+def admin_eliminar_resena(cod_re):
+    volver = url_for('menu_admin') + '#resenas'
+    conexion = conectar()
+    cursor = conexion.cursor()
+    tabla = tabla_resena(cursor)
+    cursor.execute(sql.SQL("DELETE FROM {} WHERE cod_re = %s RETURNING cod_re").format(tabla), (cod_re,))
+    borrada = cursor.fetchone()
+    if borrada is None:
+        cursor.close()
+        desconectar(conexion)
+        flash('Esa reseña ya no existe.', 'admin_error')
+        return redirect(volver)
+
+    registrar_accion_admin(cursor, session['usuario_id'], 'Reseña eliminada', f'Código {cod_re}')
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+    flash('La reseña fue eliminada.', 'admin_ok')
+    return redirect(volver)
+
+
+@app.route('/admin/anuncio', methods=['POST'])
+@admin_requerido
+def admin_enviar_anuncio():
+    volver = url_for('menu_admin') + '#anuncios'
+    mensaje = request.form.get('mensaje', '').strip()
+    destino = request.form.get('destino', '')
+    roles_destino = {
+        'todos': ['arrendador', 'arrendatario'],
+        'arrendadores': ['arrendador'],
+        'arrendatarios': ['arrendatario']
+    }.get(destino)
+
+    if not mensaje or len(mensaje) > 200 or roles_destino is None:
+        flash('Escribe un mensaje de máximo 200 caracteres y elige a quién enviarlo.', 'admin_error')
+        return redirect(volver)
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "SELECT DISTINCT cod_usu FROM rol_usuario WHERE rol = ANY(%s) "
+        "AND cod_usu NOT IN (SELECT cod_usu FROM rol_usuario WHERE rol = 'admin')",
+        (roles_destino,)
+    )
+    destinatarios = [f[0] for f in cursor.fetchall()]
+    rol_aviso = None if destino == 'todos' else roles_destino[0]
+    for cod_usu in destinatarios:
+        crear_notificacion(cursor, cod_usu, 'Anuncio de RentHouse: ' + mensaje, None, False, rol_aviso)
+    registrar_accion_admin(cursor, session['usuario_id'], 'Anuncio enviado', f'{destino}: {len(destinatarios)} destinatarios')
+    conexion.commit()
+    cursor.close()
+    desconectar(conexion)
+
+    flash(f'Anuncio enviado a {len(destinatarios)} usuario(s).', 'admin_ok')
+    return redirect(volver)
+
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -2292,12 +2789,7 @@ Gracias por unirte a RentHouse.
         return False
 
 
-def generar_contraseña_temporal(longitud=10):
-    caracteres = string.ascii_letters + string.digits
-    return ''.join(random.choice(caracteres) for _ in range(longitud))
-
-
-def enviar_correo_recuperacion(destinatario, contraseña_temporal):
+def enviar_correo_recuperacion(destinatario, enlace):
     mi_email = "soporterenthaouse@gmail.com"
     mi_password = "vkry cfnb jimw rfqv"
 
@@ -2311,11 +2803,11 @@ def enviar_correo_recuperacion(destinatario, contraseña_temporal):
 
 Recibimos una solicitud para recuperar tu contraseña en RentHouse.
 
-Tu contraseña temporal es: {contraseña_temporal}
+Entra a este enlace para elegir una contraseña nueva. Vence en {TOKEN_RECUPERACION_MINUTOS} minutos y solo se puede usar una vez:
 
-Por seguridad, te recomendamos iniciar sesión y cambiarla lo antes posible.
+{enlace}
 
-Si no solicitaste este cambio, ignora este correo.
+Si no solicitaste este cambio, ignora este correo: tu contraseña actual sigue funcionando.
 """
         email.attach(MIMEText(cuerpo, 'plain'))
 
@@ -2342,7 +2834,7 @@ def registro():
         ciudad = request.form['ciudad']
         correo = request.form['correo']
         telefono = request.form['telefono']
-        roles = request.form.getlist('roles')
+        roles = [r for r in request.form.getlist('roles') if r in ('arrendador', 'arrendatario')]
         contraseña = request.form['contraseña']
         contraseña = bcrypt.hashpw(contraseña.encode(), bcrypt.gensalt()).decode()
 
@@ -2398,46 +2890,93 @@ def registro():
 @app.route("/contraseña", methods=['GET', 'POST'])
 def recuperar_contraseña():
     if request.method == 'POST':
-        correo = request.form['correo']
+        correo = request.form['correo'].strip()
 
         conexion = conectar()
         cursor = conexion.cursor()
-        cursor.execute(
-            "SELECT * FROM usuario WHERE correo = %s",
-            (correo,)
-        )
-        resultado = cursor.fetchone()
+        cursor.execute("SELECT cod_usu FROM usuario WHERE correo = %s", (correo,))
+        fila = cursor.fetchone()
 
-        if resultado is None:
+        enlace = None
+        if fila is not None:
+            token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            cursor.execute("UPDATE recuperacion_password SET usado = TRUE WHERE cod_usu = %s AND usado = FALSE", (fila[0],))
+            cursor.execute(
+                "INSERT INTO recuperacion_password (cod_usu, token_hash, expira) "
+                "VALUES (%s, %s, NOW() + (%s * INTERVAL '1 minute'))",
+                (fila[0], token_hash, TOKEN_RECUPERACION_MINUTOS)
+            )
+            conexion.commit()
+            enlace = url_for('restablecer_password', token=token, _external=True)
+
+        cursor.close()
+        desconectar(conexion)
+
+        if enlace:
+            enviar_correo_recuperacion(correo, enlace)
+
+        return render_template(
+            "contraseña.html",
+            mensaje=f"Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña (vence en {TOKEN_RECUPERACION_MINUTOS} minutos)"
+        )
+
+    return render_template("contraseña.html")
+
+
+@app.route('/restablecer/<token>', methods=['GET', 'POST'])
+def restablecer_password(token):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "SELECT cod_usu FROM recuperacion_password WHERE token_hash = %s AND usado = FALSE AND expira > NOW()",
+        (token_hash,)
+    )
+    fila = cursor.fetchone()
+
+    if fila is None:
+        cursor.close()
+        desconectar(conexion)
+        return render_template('restablecer.html', valido=False, error='El enlace no es válido o ya venció. Solicita uno nuevo.')
+
+    if request.method == 'POST':
+        password_nueva = request.form.get('password_nueva', '')
+        password_confirmar = request.form.get('password_confirmar', '')
+
+        patron = r'(?=.*[a-z])(?=.*[A-Z])(?=.*[\d!@#$%^&*()_+\-={}[\]|:;,.?]).{8,}'
+        error = None
+        if password_nueva != password_confirmar:
+            error = 'Las contraseñas no coinciden.'
+        elif not re.fullmatch(patron, password_nueva):
+            error = 'La contraseña debe tener mínimo 8 caracteres, con una mayúscula, una minúscula y un número o símbolo.'
+
+        if error:
             cursor.close()
             desconectar(conexion)
-            return render_template("contraseña.html", error="No existe una cuenta con ese correo")
+            return render_template('restablecer.html', valido=True, error=error)
 
-        contraseña_temporal = generar_contraseña_temporal()
-        contraseña_hash = bcrypt.hashpw(contraseña_temporal.encode(), bcrypt.gensalt()).decode()
-
+        password_hash = bcrypt.hashpw(password_nueva.encode(), bcrypt.gensalt()).decode()
         cursor.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'usuario' AND column_name LIKE 'contrase%'"
         )
         nombre_columna = cursor.fetchone()[0]
-
-        query = sql.SQL("UPDATE usuario SET {} = %s WHERE correo = %s").format(
-            sql.Identifier(nombre_columna)
+        cursor.execute(
+            sql.SQL("UPDATE usuario SET {} = %s WHERE cod_usu = %s").format(sql.Identifier(nombre_columna)),
+            (password_hash, fila[0])
         )
-        cursor.execute(query, (contraseña_hash, correo))
-
+        cursor.execute("UPDATE recuperacion_password SET usado = TRUE WHERE cod_usu = %s", (fila[0],))
+        crear_notificacion(cursor, fila[0], 'Cambiaste tu contraseña.')
         conexion.commit()
         cursor.close()
         desconectar(conexion)
+        return render_template('restablecer.html', valido=False, mensaje='Contraseña actualizada. Ya puedes iniciar sesión.')
 
-        enviado = enviar_correo_recuperacion(correo, contraseña_temporal)
+    cursor.close()
+    desconectar(conexion)
+    return render_template('restablecer.html', valido=True)
 
-        if enviado:
-            return render_template("contraseña.html", mensaje="Te enviamos una contraseña temporal a tu correo")
-        else:
-            return render_template("contraseña.html", error="No se pudo enviar el correo, intenta de nuevo")
-
-    return render_template("contraseña.html")
 
 @app.route('/perfil/actualizar', methods=['POST'])
 def actualizar_perfil():
@@ -2598,12 +3137,7 @@ def cambiar_password():
     }
     roles = session.get('roles', [])
     destino = normalizar_destino(request.form.get('destino'), roles)
-    if 'administrador' in roles:
-        por_defecto = ('menu_admin', 'cuenta')
-    elif 'arrendador' in roles and 'arrendatario' in roles:
-        por_defecto = ('menu_completo', 'at-perfil')
-    else:
-        por_defecto = ('menu_arrendatario', 'perfil')
+    por_defecto = ('menu_completo', 'at-perfil') if 'arrendador' in roles and 'arrendatario' in roles else ('menu_arrendatario', 'perfil')
     endpoint, ancla = destinos.get(destino, por_defecto)
     volver = url_for(endpoint) + '#' + ancla
 
@@ -2657,481 +3191,6 @@ def cambiar_password():
 
     flash('Contraseña actualizada correctamente.', 'ok')
     return redirect(volver)
-
-
-# ============================================================
-# PANEL DE ADMINISTRADOR
-# ============================================================
-
-MESES_ABREV = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-
-
-def es_admin():
-    return 'usuario_id' in session and 'administrador' in session.get('roles', [])
-
-
-def asegurar_tablas_admin():
-    conexion = conectar()
-    cursor = conexion.cursor()
-    try:
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS admin_log (
-                cod_log SERIAL PRIMARY KEY,
-                cod_admin INTEGER REFERENCES usuario(cod_usu) ON DELETE SET NULL,
-                accion VARCHAR(60) NOT NULL,
-                detalle TEXT,
-                fecha TIMESTAMP NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        # La tabla original solo aceptaba 'arrendador' y 'arrendatario'
-        cursor.execute("ALTER TABLE rol_usuario DROP CONSTRAINT IF EXISTS rol_usuario_rol_check")
-        cursor.execute(
-            "ALTER TABLE rol_usuario ADD CONSTRAINT rol_usuario_rol_check "
-            "CHECK (rol IN ('arrendador', 'arrendatario', 'administrador'))"
-        )
-        conexion.commit()
-    except psycopg2.Error as error:
-        conexion.rollback()
-        print("No se pudo preparar la base de datos para el administrador:", error)
-    finally:
-        cursor.close()
-        desconectar(conexion)
-
-
-asegurar_tablas_admin()
-
-
-def registrar_actividad(cursor, accion, detalle=None):
-    cursor.execute(
-        "INSERT INTO admin_log (cod_admin, accion, detalle) VALUES (%s, %s, %s)",
-        (session['usuario_id'], accion, detalle)
-    )
-
-
-def volver_admin(ancla):
-    return redirect(url_for('menu_admin') + '#' + ancla)
-
-
-@app.route('/admin/menu')
-def menu_admin():
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-    tabla = tabla_resena(cursor)
-
-    # Usuarios
-    cursor.execute(
-        """
-        SELECT u.cod_usu, u.nombre, u.correo, u.ciudad, u.estado_cuenta,
-               ARRAY_REMOVE(ARRAY_AGG(r.rol ORDER BY r.rol), NULL)
-        FROM usuario u
-        LEFT JOIN rol_usuario r ON r.cod_usu = u.cod_usu
-        GROUP BY u.cod_usu
-        ORDER BY u.cod_usu DESC
-        """
-    )
-    usuarios = [
-        {
-            'cod_usu': f[0], 'nombre': f[1], 'correo': f[2], 'ciudad': f[3],
-            'estado': f[4] or 'activo', 'roles': f[5] or [],
-            'es_admin': 'administrador' in (f[5] or [])
-        }
-        for f in cursor.fetchall()
-    ]
-
-    # Viviendas
-    cursor.execute(
-        "SELECT v.cod_vi, v.titulo, v.ciudad, v.precio, u.nombre, " + ESTADO_VISIBLE_SQL + ", v.estado "
-        "FROM vivienda v JOIN usuario u ON u.cod_usu = v.cod1_usu ORDER BY v.cod_vi DESC"
-    )
-    viviendas = [
-        {'cod_vi': f[0], 'titulo': f[1], 'ciudad': f[2], 'precio': f[3],
-         'dueno': f[4], 'estado': f[5], 'estado_real': f[6]}
-        for f in cursor.fetchall()
-    ]
-
-    # Alquileres
-    cursor.execute(
-        """
-        SELECT a.cod_ar, v.titulo, ua.nombre, ut.nombre, a.fecha_inicio, a.fecha_fin,
-               (SELECT COUNT(*) FROM pago p WHERE p.cod1_ar = a.cod_ar AND p.estado = 'Pagado'),
-               (SELECT COUNT(*) FROM pago p WHERE p.cod1_ar = a.cod_ar AND p.estado = 'Pendiente')
-        FROM arriendo a
-        JOIN vivienda v ON v.cod_vi = a.cod1_vivienda
-        JOIN usuario ua ON ua.cod_usu = v.cod1_usu
-        JOIN usuario ut ON ut.cod_usu = a.cod1_usu
-        ORDER BY a.cod_ar DESC
-        """
-    )
-    alquileres = [
-        {
-            'cod_ar': f[0], 'titulo': f[1], 'arrendador': f[2], 'arrendatario': f[3],
-            'fecha_inicio': f[4], 'fecha_fin': f[5],
-            'estado_alquiler': estado_alquiler(f[4], f[5]),
-            'estado_pago': estado_pago_alquiler(f[6], f[7]).lower(),
-            'pagos': f[6] + f[7]
-        }
-        for f in cursor.fetchall()
-    ]
-
-    # Pagos
-    cursor.execute(
-        """
-        SELECT v.titulo, u.nombre, p.fecha_pago, p.monto, p.metodo_pago, p.estado
-        FROM pago p
-        JOIN arriendo a ON a.cod_ar = p.cod1_ar
-        JOIN vivienda v ON v.cod_vi = a.cod1_vivienda
-        JOIN usuario u ON u.cod_usu = a.cod1_usu
-        WHERE p.fecha_pago IS NOT NULL
-        ORDER BY p.fecha_pago DESC, p.cod_pag DESC
-        LIMIT 200
-        """
-    )
-    pagos = [
-        {'titulo': f[0], 'arrendatario': f[1], 'fecha_pago': f[2],
-         'monto': f[3], 'metodo_pago': f[4], 'estado': f[5]}
-        for f in cursor.fetchall()
-    ]
-
-    # Reseñas
-    cursor.execute(
-        sql.SQL(
-            """
-            SELECT r.cod_re, r.fecha, u.nombre, v.titulo, r.calificacion, r.comentario
-            FROM {} r
-            LEFT JOIN usuario u ON u.cod_usu = r.cod1_usu
-            LEFT JOIN vivienda v ON v.cod_vi = r.cod1_vivienda
-            ORDER BY r.cod_re DESC
-            """
-        ).format(tabla)
-    )
-    resenas = [
-        {'cod_re': f[0], 'fecha': f[1], 'autor': f[2] or '—', 'titulo': f[3],
-         'calificacion': f[4], 'comentario': f[5]}
-        for f in cursor.fetchall()
-    ]
-
-    # Actividad del administrador
-    cursor.execute(
-        """
-        SELECT l.fecha, COALESCE(u.nombre, '(cuenta eliminada)'), l.accion, l.detalle
-        FROM admin_log l
-        LEFT JOIN usuario u ON u.cod_usu = l.cod_admin
-        ORDER BY l.fecha DESC, l.cod_log DESC
-        LIMIT 50
-        """
-    )
-    actividad = [
-        {'fecha': f[0], 'admin': f[1], 'accion': f[2], 'detalle': f[3]}
-        for f in cursor.fetchall()
-    ]
-
-    # Resumen
-    cursor.execute("SELECT COUNT(*) FROM solicitud_alquiler WHERE estado = 'pendiente'")
-    solicitudes_pendientes = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        SELECT COALESCE(SUM(monto) FILTER (WHERE estado = 'Pagado'), 0),
-               COUNT(*) FILTER (WHERE estado = 'Pendiente')
-        FROM pago
-        WHERE fecha_pago IS NOT NULL
-          AND date_trunc('month', fecha_pago) = date_trunc('month', CURRENT_DATE)
-        """
-    )
-    pagos_mes, pagos_pendientes_mes = cursor.fetchone()
-
-    cursor.execute(
-        """
-        SELECT date_trunc('month', fecha_pago)::date, SUM(monto)
-        FROM pago
-        WHERE estado = 'Pagado' AND fecha_pago IS NOT NULL
-          AND fecha_pago >= date_trunc('month', CURRENT_DATE) - INTERVAL '5 months'
-        GROUP BY 1
-        """
-    )
-    por_mes = {(f[0].year, f[0].month): f[1] for f in cursor.fetchall()}
-
-    hoy = date.today()
-    meses = []
-    anio, mes = hoy.year, hoy.month
-    for _ in range(6):
-        meses.append((anio, mes))
-        mes -= 1
-        if mes == 0:
-            anio, mes = anio - 1, 12
-    meses.reverse()
-    totales = [por_mes.get(m, 0) for m in meses]
-    maximo = max(totales) if totales and max(totales) > 0 else 0
-    barras = [
-        {
-            'etiqueta': f"{MESES_ABREV[m[1] - 1]} {m[0]}",
-            'total': t,
-            'pct': round(float(t) / float(maximo) * 100) if maximo else 0
-        }
-        for m, t in zip(meses, totales)
-    ]
-
-    cursor.execute(
-        sql.SQL("SELECT COUNT(*), AVG(calificacion) FROM {}").format(tabla)
-    )
-    total_resenas, promedio = cursor.fetchone()
-
-    cursor.close()
-    desconectar(conexion)
-
-    resumen = {
-        'usuarios_activos': sum(1 for u in usuarios if u['estado'] != 'inactivo'),
-        'usuarios_inactivos': sum(1 for u in usuarios if u['estado'] == 'inactivo'),
-        'arrendadores': sum(1 for u in usuarios if 'arrendador' in u['roles']),
-        'arrendatarios': sum(1 for u in usuarios if 'arrendatario' in u['roles']),
-        'ambos': sum(1 for u in usuarios if 'arrendador' in u['roles'] and 'arrendatario' in u['roles']),
-        'viviendas': len(viviendas),
-        'viviendas_disponibles': sum(1 for v in viviendas if v['estado'] == 'disponible'),
-        'viviendas_alquiladas': sum(1 for v in viviendas if v['estado'] == 'alquilada'),
-        'viviendas_ocultas': sum(1 for v in viviendas if v['estado'] == 'no disponible'),
-        'alquileres_activos': sum(1 for a in alquileres if a['estado_alquiler'] == 'Activo'),
-        'solicitudes_pendientes': solicitudes_pendientes,
-        'pagos_mes': pagos_mes,
-        'pagos_pendientes_mes': pagos_pendientes_mes,
-        'resenas': total_resenas,
-        'promedio_resenas': round(float(promedio), 1) if promedio is not None else None,
-        'barras': barras
-    }
-
-    return render_template(
-        'admin/menu.html',
-        nombre=session['nombre'],
-        yo=session['usuario_id'],
-        resumen=resumen,
-        usuarios=usuarios,
-        viviendas=viviendas,
-        alquileres=alquileres,
-        pagos=pagos,
-        resenas=resenas,
-        actividad=actividad
-    )
-
-
-@app.route('/admin/usuario/<int:cod_usu>/estado', methods=['POST'])
-def admin_cambiar_estado_usuario(cod_usu):
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    if cod_usu == session['usuario_id']:
-        flash('No puedes desactivar tu propia cuenta.', 'admin_error')
-        return volver_admin('usuarios')
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-    cursor.execute(
-        "SELECT u.nombre, u.estado_cuenta, "
-        "EXISTS (SELECT 1 FROM rol_usuario r WHERE r.cod_usu = u.cod_usu AND r.rol = 'administrador') "
-        "FROM usuario u WHERE u.cod_usu = %s",
-        (cod_usu,)
-    )
-    fila = cursor.fetchone()
-
-    if fila is None:
-        cursor.close()
-        desconectar(conexion)
-        flash('Esa cuenta no existe.', 'admin_error')
-        return volver_admin('usuarios')
-
-    nombre, estado, es_otro_admin = fila
-    if es_otro_admin:
-        cursor.close()
-        desconectar(conexion)
-        flash('No puedes cambiar el estado de otro administrador.', 'admin_error')
-        return volver_admin('usuarios')
-
-    nuevo = 'activo' if estado == 'inactivo' else 'inactivo'
-    cursor.execute("UPDATE usuario SET estado_cuenta = %s WHERE cod_usu = %s", (nuevo, cod_usu))
-    registrar_actividad(
-        cursor,
-        'Reactivar usuario' if nuevo == 'activo' else 'Desactivar usuario',
-        f'{nombre} (código {cod_usu})'
-    )
-    conexion.commit()
-    cursor.close()
-    desconectar(conexion)
-
-    flash(f'La cuenta de {nombre} fue {"reactivada" if nuevo == "activo" else "desactivada"}.', 'admin_ok')
-    return volver_admin('usuarios')
-
-
-@app.route('/admin/vivienda/<int:cod_vi>/estado', methods=['POST'])
-def admin_cambiar_estado_vivienda(cod_vi):
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-    cursor.execute("SELECT titulo, estado, cod1_usu FROM vivienda WHERE cod_vi = %s", (cod_vi,))
-    fila = cursor.fetchone()
-
-    if fila is None:
-        cursor.close()
-        desconectar(conexion)
-        flash('Esa vivienda no existe.', 'admin_error')
-        return volver_admin('viviendas')
-
-    titulo, estado, dueno = fila
-    oculta_ahora = estado != 'disponible'
-    nuevo = 'disponible' if oculta_ahora else 'no disponible'
-    cursor.execute("UPDATE vivienda SET estado = %s WHERE cod_vi = %s", (nuevo, cod_vi))
-    registrar_actividad(
-        cursor,
-        'Mostrar vivienda' if nuevo == 'disponible' else 'Ocultar vivienda',
-        f'{titulo} (código {cod_vi})'
-    )
-    crear_notificacion(
-        cursor, dueno,
-        f'Un administrador {"volvió a publicar" if nuevo == "disponible" else "ocultó"} tu vivienda "{titulo}".',
-        rol='arrendador'
-    )
-    conexion.commit()
-    cursor.close()
-    desconectar(conexion)
-
-    flash(f'La vivienda "{titulo}" ahora está {"visible" if nuevo == "disponible" else "oculta"}.', 'admin_ok')
-    return volver_admin('viviendas')
-
-
-@app.route('/admin/vivienda/<int:cod_vi>/eliminar', methods=['POST'])
-def admin_eliminar_vivienda(cod_vi):
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-    cursor.execute("SELECT titulo, cod1_usu FROM vivienda WHERE cod_vi = %s", (cod_vi,))
-    fila = cursor.fetchone()
-
-    if fila is None:
-        cursor.close()
-        desconectar(conexion)
-        flash('Esa vivienda no existe.', 'admin_error')
-        return volver_admin('viviendas')
-
-    titulo, dueno = fila
-    cursor.execute("SELECT url FROM foto_vivienda WHERE cod1_vivienda = %s", (cod_vi,))
-    urls = [f[0] for f in cursor.fetchall()]
-
-    try:
-        cursor.execute("DELETE FROM foto_vivienda WHERE cod1_vivienda = %s", (cod_vi,))
-        cursor.execute("DELETE FROM favorito WHERE cod1_vivienda = %s", (cod_vi,))
-        cursor.execute("DELETE FROM mensaje WHERE cod_vi = %s", (cod_vi,))
-        cursor.execute("DELETE FROM vivienda WHERE cod_vi = %s", (cod_vi,))
-        registrar_actividad(cursor, 'Eliminar vivienda', f'{titulo} (código {cod_vi})')
-        crear_notificacion(
-            cursor, dueno,
-            f'Un administrador eliminó tu vivienda "{titulo}".',
-            rol='arrendador'
-        )
-        conexion.commit()
-    except psycopg2.errors.ForeignKeyViolation:
-        conexion.rollback()
-        cursor.close()
-        desconectar(conexion)
-        flash('No se puede eliminar: la vivienda tiene arriendos, reseñas, reportes o pagos asociados. '
-              'Mejor ocúltala.', 'admin_error')
-        return volver_admin('viviendas')
-
-    cursor.close()
-    desconectar(conexion)
-    borrar_archivos(urls)
-
-    flash(f'La vivienda "{titulo}" fue eliminada.', 'admin_ok')
-    return volver_admin('viviendas')
-
-
-@app.route('/admin/resena/<int:cod_re>/eliminar', methods=['POST'])
-def admin_eliminar_resena(cod_re):
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-    tabla = tabla_resena(cursor)
-    cursor.execute(
-        sql.SQL(
-            "SELECT r.cod1_usu, u.nombre, v.titulo FROM {} r "
-            "LEFT JOIN usuario u ON u.cod_usu = r.cod1_usu "
-            "LEFT JOIN vivienda v ON v.cod_vi = r.cod1_vivienda "
-            "WHERE r.cod_re = %s"
-        ).format(tabla),
-        (cod_re,)
-    )
-    fila = cursor.fetchone()
-
-    if fila is None:
-        cursor.close()
-        desconectar(conexion)
-        flash('Esa reseña no existe.', 'admin_error')
-        return volver_admin('resenas')
-
-    autor_id, autor, titulo = fila
-    cursor.execute(sql.SQL("DELETE FROM {} WHERE cod_re = %s").format(tabla), (cod_re,))
-    registrar_actividad(cursor, 'Eliminar reseña', f'Reseña {cod_re} de {autor or "?"} sobre {titulo or "un usuario"}')
-    if autor_id is not None:
-        crear_notificacion(cursor, autor_id, 'Un administrador eliminó una de tus reseñas.')
-    conexion.commit()
-    cursor.close()
-    desconectar(conexion)
-
-    flash('La reseña fue eliminada.', 'admin_ok')
-    return volver_admin('resenas')
-
-
-@app.route('/admin/anuncio', methods=['POST'])
-def admin_enviar_anuncio():
-    if not es_admin():
-        return redirect(url_for('login'))
-
-    destino = request.form.get('destino', '')
-    mensaje = (request.form.get('mensaje') or '').strip()
-
-    if destino not in ('todos', 'arrendadores', 'arrendatarios'):
-        flash('Selecciona a quién enviar el anuncio.', 'admin_error')
-        return volver_admin('anuncios')
-    if not mensaje or len(mensaje) > 200:
-        flash('El mensaje es obligatorio y de máximo 200 caracteres.', 'admin_error')
-        return volver_admin('anuncios')
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
-    if destino == 'todos':
-        cursor.execute(
-            "SELECT u.cod_usu FROM usuario u WHERE COALESCE(u.estado_cuenta, 'activo') <> 'inactivo' "
-            "AND NOT EXISTS (SELECT 1 FROM rol_usuario r WHERE r.cod_usu = u.cod_usu AND r.rol = 'administrador')"
-        )
-        rol_notificacion = None
-    else:
-        rol = 'arrendador' if destino == 'arrendadores' else 'arrendatario'
-        cursor.execute(
-            "SELECT DISTINCT u.cod_usu FROM usuario u JOIN rol_usuario r ON r.cod_usu = u.cod_usu "
-            "WHERE r.rol = %s AND COALESCE(u.estado_cuenta, 'activo') <> 'inactivo'",
-            (rol,)
-        )
-        rol_notificacion = rol
-
-    destinatarios = [f[0] for f in cursor.fetchall()]
-    for cod_usu in destinatarios:
-        crear_notificacion(cursor, cod_usu, '📣 Anuncio: ' + mensaje, rol=rol_notificacion)
-
-    registrar_actividad(cursor, 'Enviar anuncio', f'A {destino} ({len(destinatarios)} usuarios): {mensaje}')
-    conexion.commit()
-    cursor.close()
-    desconectar(conexion)
-
-    flash(f'Anuncio enviado a {len(destinatarios)} usuario(s).', 'admin_ok')
-    return volver_admin('anuncios')
 
 
 if __name__ == '__main__':
